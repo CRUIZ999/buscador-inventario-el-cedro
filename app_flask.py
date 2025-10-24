@@ -1,29 +1,44 @@
 from flask import Flask, request, render_template_string, jsonify, abort
 import sqlite3
 import html
+import unicodedata
 
 app = Flask(__name__)
 DB_PATH = "inventario_el_cedro.db"
 
-# -------------------- FUNCIONES DE BASE DE DATOS -------------------- #
-def get_conn():
-    return sqlite3.connect(DB_PATH)
+# -------------------- Normalización (acentos) -------------------- #
+def _normalize(s: str) -> str:
+    if s is None:
+        return ""
+    s = str(s)
+    # NFD separa letras y acentos; removemos todos los "Mn" (marcas)
+    s = unicodedata.normalize("NFD", s)
+    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+    return s.lower()
 
+def get_conn():
+    conn = sqlite3.connect(DB_PATH)
+    # Registramos función SQL ufn_norm(text) disponible en consultas
+    conn.create_function("ufn_norm", 1, _normalize)
+    return conn
+
+# -------------------- Consultas -------------------- #
 def buscar_productos(conn, q):
     """
-    Búsqueda menos estricta: usa OR entre los tokens (coincidencia con cualquiera).
-    Compatible con SQLite en Render.
+    Búsqueda insensible a acentos y mayúsculas.
+    Menos estricta: usa OR entre tokens (coincide si aparece cualquiera).
     """
     tokens = [t.strip() for t in q.split() if t.strip()]
     if not tokens:
         return []
+
     where_parts, params = [], []
     for t in tokens:
         like = f"%{t}%"
-        where_parts.append("(Descripcion LIKE ? COLLATE NOCASE OR Codigo LIKE ? COLLATE NOCASE)")
+        # Normalizamos columna y patrón con ufn_norm()
+        where_parts.append("(ufn_norm(Descripcion) LIKE ufn_norm(?) OR ufn_norm(Codigo) LIKE ufn_norm(?))")
         params.extend([like, like])
 
-    # 🔹 Usa OR para coincidencias más amplias
     sql = f"""
         SELECT Codigo, Descripcion
         FROM inventario
@@ -37,6 +52,9 @@ def buscar_productos(conn, q):
     return cur.fetchall()
 
 def detalle_por_producto(conn, codigo=None, descripcion=None):
+    """
+    Detalle por sucursal. Usamos preferentemente el código (exacto).
+    """
     cur = conn.cursor()
     if codigo:
         cur.execute("""
@@ -46,17 +64,18 @@ def detalle_por_producto(conn, codigo=None, descripcion=None):
             ORDER BY Sucursal;
         """, (codigo,))
     elif descripcion:
+        # Si quisieras también por descripción sin acentos:
         cur.execute("""
             SELECT Sucursal, Existencia, Clasificacion
             FROM inventario
-            WHERE Descripcion = ?
+            WHERE ufn_norm(Descripcion) = ufn_norm(?)
             ORDER BY Sucursal;
         """, (descripcion,))
     else:
         return []
     return cur.fetchall()
 
-# -------------------- PLANTILLA HTML -------------------- #
+# -------------------- Plantilla -------------------- #
 TEMPLATE = r"""
 <!doctype html>
 <html lang="es">
@@ -138,7 +157,7 @@ TEMPLATE = r"""
           <div class="col-md-9">
             <input name="q" value="{{ q }}" class="form-control form-control-lg"
                    placeholder="Buscar producto o código..." />
-            <div class="form-text">Tip: puedes buscar varios términos (ej. <code>tinaco truper</code>)</div>
+            <div class="form-text">Tip: busca varios términos (ej. <code>tinaco truper</code>) • Sin acentos es OK.</div>
           </div>
           <div class="col-md-3 d-grid">
             <button class="btn btn-primary btn-lg" type="submit">Buscar</button>
@@ -207,7 +226,7 @@ TEMPLATE = r"""
 
     document.getElementById('btn-limpiar').addEventListener('click',()=>{
       document.getElementById('detalle-rows').innerHTML=
-        `<tr><td colspan="3" class="text-center text-muted">Selecciona un producto para ver el detalle</td></tr>`;
+        `<tr><td colspan="3" class="text-center text-muted">Selecciona un producto para ver el detalle por sucursal</td></tr>`;
       document.getElementById('detalle-titulo').textContent="Selecciona un producto";
     });
   </script>
@@ -215,7 +234,7 @@ TEMPLATE = r"""
 </html>
 """
 
-# -------------------- RUTAS -------------------- #
+# -------------------- Rutas -------------------- #
 @app.route("/", methods=["GET"])
 def index():
     q = (request.args.get("q") or "").strip()
@@ -255,7 +274,7 @@ def api_detalle():
 
     return jsonify(ok=True, rows_html=rows_html)
 
-# -------------------- DEPURACIÓN -------------------- #
+# -------------------- Depuración -------------------- #
 @app.route("/debug_db")
 def debug_db():
     try:
@@ -284,6 +303,7 @@ def debug_sample():
     except Exception as e:
         return {"error": str(e)}, 500
 
+# -------------------- Main -------------------- #
 if __name__ == "__main__":
     app.run(host="127.0.0.1", port=8000, debug=False)
 
