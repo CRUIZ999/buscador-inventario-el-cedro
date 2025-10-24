@@ -11,50 +11,82 @@ def _normalize(s: str) -> str:
     if s is None:
         return ""
     s = str(s)
-    # NFD separa letras y acentos; removemos todos los "Mn" (marcas)
     s = unicodedata.normalize("NFD", s)
     s = "".join(c for c in s if unicodedata.category(c) != "Mn")
     return s.lower()
 
 def get_conn():
     conn = sqlite3.connect(DB_PATH)
-    # Registramos función SQL ufn_norm(text) disponible en consultas
     conn.create_function("ufn_norm", 1, _normalize)
     return conn
 
 # -------------------- Consultas -------------------- #
+def _build_or_where_norm(tokens):
+    parts, params = [], []
+    for t in tokens:
+        like = f"%{t}%"
+        parts.append("(ufn_norm(Descripcion) LIKE ufn_norm(?) OR ufn_norm(Codigo) LIKE ufn_norm(?))")
+        params.extend([like, like])
+    return " OR ".join(parts), params
+
+def _build_or_where_simple(tokens):
+    parts, params = [], []
+    for t in tokens:
+        like = f"%{t}%"
+        parts.append("(Descripcion LIKE ? OR Codigo LIKE ?)")
+        params.extend([like, like])
+    return " OR ".join(parts), params
+
 def buscar_productos(conn, q):
     """
-    Búsqueda insensible a acentos y mayúsculas.
-    Menos estricta: usa OR entre tokens (coincide si aparece cualquiera).
+    Búsqueda insensible a acentos y menos estricta (OR entre palabras).
+    Si no devuelve nada, vuelve a buscar con LIKE simple (plan B).
     """
     tokens = [t.strip() for t in q.split() if t.strip()]
     if not tokens:
         return []
 
-    where_parts, params = [], []
-    for t in tokens:
-        like = f"%{t}%"
-        # Normalizamos columna y patrón con ufn_norm()
-        where_parts.append("(ufn_norm(Descripcion) LIKE ufn_norm(?) OR ufn_norm(Codigo) LIKE ufn_norm(?))")
-        params.extend([like, like])
+    cur = conn.cursor()
 
-    sql = f"""
+    # --- 1) consulta normalizada (recomendada) ---
+    where_norm, params_norm = _build_or_where_norm(tokens)
+    sql_norm = f"""
         SELECT Codigo, Descripcion
         FROM inventario
-        WHERE {' OR '.join(where_parts)}
+        WHERE {where_norm}
         GROUP BY Codigo, Descripcion
         ORDER BY Descripcion
         LIMIT 100;
     """
-    cur = conn.cursor()
-    cur.execute(sql, params)
-    return cur.fetchall()
+    rows = []
+    try:
+        cur.execute(sql_norm, params_norm)
+        rows = cur.fetchall()
+    except Exception as e:
+        print("[WARN] consulta normalizada falló:", e)
+
+    # --- 2) si no hay resultados, plan B con LIKE simple ---
+    if not rows:
+        where_simple, params_simple = _build_or_where_simple(tokens)
+        sql_simple = f"""
+            SELECT Codigo, Descripcion
+            FROM inventario
+            WHERE {where_simple}
+            GROUP BY Codigo, Descripcion
+            ORDER BY Descripcion
+            LIMIT 100;
+        """
+        try:
+            cur.execute(sql_simple, params_simple)
+            rows = cur.fetchall()
+            if rows:
+                print("[INFO] plan B (LIKE simple) devolvió", len(rows), "filas")
+        except Exception as e:
+            print("[ERROR] plan B (LIKE simple) falló:", e)
+
+    return rows
 
 def detalle_por_producto(conn, codigo=None, descripcion=None):
-    """
-    Detalle por sucursal. Usamos preferentemente el código (exacto).
-    """
     cur = conn.cursor()
     if codigo:
         cur.execute("""
@@ -64,7 +96,6 @@ def detalle_por_producto(conn, codigo=None, descripcion=None):
             ORDER BY Sucursal;
         """, (codigo,))
     elif descripcion:
-        # Si quisieras también por descripción sin acentos:
         cur.execute("""
             SELECT Sucursal, Existencia, Clasificacion
             FROM inventario
@@ -100,14 +131,9 @@ TEMPLATE = r"""
       background:var(--azul-100)!important;
       color:#0f172a; border-bottom:1px solid #dbeafe;
     }
-    .btn-primary{
-      background:var(--azul-700); border-color:var(--azul-700);
-    }
+    .btn-primary{background:var(--azul-700); border-color:var(--azul-700);}
     .btn-primary:hover{background:#144aa5; border-color:#144aa5;}
-    .result-item{
-      padding:.6rem .75rem; border-radius:10px; border:1px solid #e6eefc;
-      cursor:pointer; background:white;
-    }
+    .result-item{padding:.6rem .75rem; border-radius:10px; border:1px solid #e6eefc; cursor:pointer; background:white;}
     .result-item:hover{background:#f3f7ff; border-color:#d2e2ff;}
     .muted{color:#64748b; font-size:.925rem;}
     .badge-code{font-family:ui-monospace, monospace; background:#eef2ff; color:#1e40af;}
@@ -121,8 +147,6 @@ TEMPLATE = r"""
   </nav>
 
   <main class="container my-4">
-
-    <!-- Tarjeta de detalle -->
     <div class="card mb-4">
       <div class="card-body">
         <div class="d-flex justify-content-between align-items-center mb-2">
@@ -140,9 +164,7 @@ TEMPLATE = r"""
             </thead>
             <tbody id="detalle-rows">
               <tr>
-                <td colspan="3" class="text-center text-muted">
-                  Selecciona un producto para ver el detalle por sucursal
-                </td>
+                <td colspan="3" class="text-center text-muted">Selecciona un producto para ver el detalle por sucursal</td>
               </tr>
             </tbody>
           </table>
@@ -150,14 +172,13 @@ TEMPLATE = r"""
       </div>
     </div>
 
-    <!-- Buscador -->
     <div class="card">
       <div class="card-body">
         <form method="get" class="row g-2">
           <div class="col-md-9">
             <input name="q" value="{{ q }}" class="form-control form-control-lg"
                    placeholder="Buscar producto o código..." />
-            <div class="form-text">Tip: busca varios términos (ej. <code>tinaco truper</code>) • Sin acentos es OK.</div>
+            <div class="form-text">Tip: puedes buscar varios términos (ej. <code>tinaco truper</code>). Acentos opcionales.</div>
           </div>
           <div class="col-md-3 d-grid">
             <button class="btn btn-primary btn-lg" type="submit">Buscar</button>
@@ -191,7 +212,6 @@ TEMPLATE = r"""
     <p class="text-center text-muted mt-4 mb-0">
       Hecho para uso interno – Inventario consolidado • Ferretería El Cedro
     </p>
-
   </main>
 
   <script>
@@ -300,6 +320,19 @@ def debug_sample():
         rows = cur.fetchall()
         conn.close()
         return {"sample": rows}
+    except Exception as e:
+        return {"error": str(e)}, 500
+
+@app.route("/debug_search")
+def debug_search():
+    q = (request.args.get("q") or "").strip()
+    if not q:
+        return {"error":"falta q"}, 400
+    try:
+        conn = get_conn()
+        rows = buscar_productos(conn, q)
+        conn.close()
+        return {"q": q, "rows_found": len(rows), "rows": rows[:10]}
     except Exception as e:
         return {"error": str(e)}, 500
 
