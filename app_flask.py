@@ -143,15 +143,26 @@ TEMPLATE = r"""
 </html>
 """
 
+# === FUNCIONES ===
+
 def buscar_productos(conn, q):
     tokens = [t.strip() for t in q.split() if t.strip()]
     if not tokens:
         return []
+
+    # Escapar comodines por si el usuario teclea % o _
+    def esc(s: str) -> str:
+        return s.replace("%", r"\%").replace("_", r"\_")
+
     where_parts, params = [], []
     for t in tokens:
-        where_parts.append("(Descripcion LIKE ? OR Codigo LIKE ?)")
+        t = esc(t)
+        where_parts.append(
+            "(Descripcion LIKE ? COLLATE NOCASE ESCAPE '\\' OR Codigo LIKE ? COLLATE NOCASE ESCAPE '\\')"
+        )
         like = f"%{t}%"
         params.extend([like, like])
+
     sql = f"""
         SELECT Codigo, Descripcion
         FROM inventario
@@ -197,5 +208,23 @@ def index():
         detalle_rows=detalle_rows
     )
 
+# === DEBUG OPCIONAL (para probar conexión DB en Render) ===
+@app.route("/debug_db")
+def debug_db():
+    try:
+        conn = sqlite3.connect("inventario_el_cedro.db")
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='inventario';")
+        has_table = cur.fetchone()[0]
+        total = None
+        if has_table:
+            cur.execute("SELECT COUNT(*) FROM inventario;")
+            total = cur.fetchone()[0]
+        conn.close()
+        return {"table_inventario": bool(has_table), "rows": total}
+    except Exception as e:
+        return {"error": str(e)}, 500
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000, debug=False)
+
