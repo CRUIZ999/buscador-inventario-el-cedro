@@ -1,10 +1,9 @@
-
-from flask import Flask, render_template_string, request, jsonify
+from flask import Flask, request, render_template_string, url_for
 import sqlite3
 
 app = Flask(__name__)
 
-TEMPLATE = """
+TEMPLATE = r"""
 <!doctype html>
 <html lang="es">
 <head>
@@ -12,79 +11,209 @@ TEMPLATE = """
   <title>Ferretería El Cedro • Buscador de Inventario</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    body{ background:#f7f7f7; }
-    .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;}
-    .result-item{ cursor:pointer; }
-    .result-item:hover{ background:#f1f5f9; }
+    :root{
+      --c-bg:         #f5f8ff;
+      --c-surface:    #ffffff;
+      --c-primary:    #1d4ed8; /* azul principal */
+      --c-primary-700:#1e40af;
+      --c-primary-50: #eff6ff;
+      --c-border:     #e6ebf5;
+      --c-text:       #0f172a;
+      --c-muted:      #64748b;
+      --c-accent:     #60a5fa;
+      --shadow-1:     0 6px 20px rgba(29,78,216,.08);
+      --shadow-2:     0 10px 30px rgba(29,78,216,.12);
+    }
+
+    html,body{background:var(--c-bg); color:var(--c-text); font-family:"Inter", system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";}
+
+    /* Navbar */
+    .nav-glass{
+      background: linear-gradient(90deg, #1e3a8a 0%, #1d4ed8 60%, #2563eb 100%);
+      box-shadow: var(--shadow-2);
+    }
+    .brand{
+      font-weight:700; letter-spacing:.3px;
+    }
+
+    /* Contenedores */
+    .container-narrow{max-width: 1080px;}
+
+    /* Cards */
+    .card{
+      border: 1px solid var(--c-border);
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: var(--shadow-1);
+      background: var(--c-surface);
+    }
+    .card-header{
+      background: linear-gradient(180deg, var(--c-primary-50), #fff);
+      border-bottom: 1px solid var(--c-border);
+      font-weight: 600;
+      color: var(--c-primary-700);
+    }
+    .card-footer{
+      background:#fff;
+      border-top:1px solid var(--c-border);
+    }
+
+    /* Tabla de detalle */
+    table thead th{
+      background: #e7f0ff;
+      color: #113a8f;
+      font-weight:600;
+      border-bottom: 1px solid var(--c-border);
+    }
+    table tbody tr:nth-child(even){
+      background: #fafcff;
+    }
+
+    /* Botones */
+    .btn-primary{
+      background: var(--c-primary);
+      border-color: var(--c-primary);
+      font-weight:600;
+      box-shadow: 0 6px 12px rgba(29,78,216,.16);
+    }
+    .btn-primary:hover{
+      background: var(--c-primary-700);
+      border-color: var(--c-primary-700);
+      box-shadow: 0 8px 16px rgba(29,78,216,.24);
+    }
+    .btn-outline-secondary{
+      border-color: #cfd8ea; color:#385192; font-weight:600;
+    }
+    .btn-outline-secondary:hover{
+      background:#eef4ff; color:#163c91; border-color:#becbe6;
+    }
+
+    /* Inputs */
+    .form-control{
+      border-radius: 12px; border:1px solid var(--c-border);
+    }
+    .form-control:focus{
+      border-color: var(--c-accent);
+      box-shadow: 0 0 0 .25rem rgba(96,165,250,.25);
+    }
+
+    /* Resultados */
+    .list-group-item{
+      border:1px solid var(--c-border);
+      border-radius: 12px !important;
+      margin-bottom:.5rem;
+      transition: transform .08s ease, box-shadow .12s ease, border-color .12s ease;
+    }
+    .list-group-item:hover{
+      transform: translateY(-1px);
+      border-color:#c7d5f7;
+      box-shadow: var(--shadow-1);
+      background:#f4f8ff;
+    }
+    .item-code{
+      color: var(--c-muted);
+      font-weight:600;
+    }
+
+    /* sticky detalle arriba */
+    .sticky-top-card{ position:sticky; top:0.75rem; z-index:1030; }
+
+    .muted{ color:var(--c-muted); }
   </style>
 </head>
 <body>
-  <nav class="navbar navbar-dark bg-success mb-4">
-    <div class="container-fluid">
-      <span class="navbar-brand mb-0 h1">Ferretería El Cedro • Buscador de Inventario</span>
+  <!-- NAV -->
+  <nav class="navbar nav-glass navbar-dark mb-4">
+    <div class="container container-narrow">
+      <span class="navbar-brand brand">Ferretería El Cedro • Buscador de Inventario</span>
     </div>
   </nav>
 
-  <div class="container mb-5">
+  <div class="container container-narrow mb-5">
 
-    <!-- 1) TABLA DE DETALLE ARRIBA -->
-    <div class="card shadow-sm mb-4">
-      <div class="card-header bg-light">
-        <strong id="detalle-titulo">Detalle: <span class="text-muted">selecciona un producto</span></strong>
+    <!-- =========== DETALLE ARRIBA (STICKY) =========== -->
+    <div class="card sticky-top-card mb-4">
+      <div class="card-header py-3 px-4">
+        {% if detalle_nombre %}
+          <span>Detalle de:</span>
+          <span class="ms-1 text-primary-emphasis">{{ detalle_nombre }}</span>
+        {% else %}
+          <span>Detalle: <span class="muted">selecciona un producto</span></span>
+        {% endif %}
       </div>
+
       <div class="card-body p-0">
-        <div class="table-responsive">
-          <table class="table table-sm mb-0">
-            <thead class="table-success">
+        <table class="table table-sm mb-0">
+          <thead>
+            <tr>
+              <th style="width:28%">Sucursal</th>
+              <th style="width:18%">Existencia</th>
+              <th>Clasificación</th>
+            </tr>
+          </thead>
+          <tbody id="detalle-tbody">
+            {% if detalle_rows and detalle_rows|length > 0 %}
+              {% for s, ex, cl in detalle_rows %}
               <tr>
-                <th style="width:35%">Sucursal</th>
-                <th style="width:25%">Existencia</th>
-                <th style="width:40%">Clasificación</th>
+                <td class="py-2 px-3">{{ s }}</td>
+                <td class="py-2 px-3">{{ ex }}</td>
+                <td class="py-2 px-3">{{ cl }}</td>
               </tr>
-            </thead>
-            <tbody id="detalle-body">
-              <tr class="text-muted">
-                <td colspan="3" class="py-3 text-center">Selecciona un producto para ver el detalle por sucursal</td>
+              {% endfor %}
+            {% else %}
+              <tr>
+                <td colspan="3" class="text-center muted py-3">
+                  Selecciona un producto para ver el detalle por sucursal
+                </td>
               </tr>
-            </tbody>
-          </table>
-        </div>
+            {% endif %}
+          </tbody>
+        </table>
       </div>
-      <div class="card-footer text-end">
-        <button class="btn btn-outline-secondary btn-sm" id="btn-limpiar" type="button">Limpiar detalle</button>
+
+      <div class="card-footer d-flex justify-content-end">
+        <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('index', q=q) }}">Limpiar detalle</a>
       </div>
     </div>
 
-    <!-- 2) BUSCADOR + RESULTADOS ABAJO -->
-    <div class="card shadow-sm">
+    <!-- =========== BUSCADOR ABAJO =========== -->
+    <div class="card">
       <div class="card-body">
-        <form id="form-buscar" method="get" class="mb-3">
-          <div class="input-group">
-            <input name="q" id="q" type="text" class="form-control" placeholder="Buscar producto o código..." value="{{ q or '' }}" autocomplete="off">
-            <button class="btn btn-success" type="submit">Buscar</button>
+        <form class="row g-2 align-items-center" method="get" action="{{ url_for('index') }}">
+          <div class="col-12 col-md-9">
+            <input type="text" class="form-control form-control-lg"
+                   name="q" placeholder="Buscar producto o código..."
+                   value="{{ q or '' }}" autofocus>
+            <div class="form-text">
+              Tip: puedes teclear varios términos (ej. <code>taladro 1/2 truper</code>)
+            </div>
           </div>
-          <div class="form-text">Tip: puedes teclear varios términos (ej. <code>taladro 1/2 truper</code>)</div>
+          <div class="col-12 col-md-3 d-grid d-md-flex justify-content-md-end">
+            <button class="btn btn-primary btn-lg px-4" type="submit">Buscar</button>
+          </div>
         </form>
 
-        {% if results is not none %}
-          {% if results %}
-            <div class="alert alert-success py-2">Resultados encontrados: {{ results|length }}</div>
-            <div class="list-group shadow-sm">
-              {% for r in results %}
-                <!-- Cada renglón es clickeable -->
-                <div
-                  class="list-group-item d-flex align-items-center justify-content-between result-item"
-                  data-codigo="{{ r['Codigo'] }}"
-                  data-descripcion="{{ r['Descripcion'] }}"
-                  tabindex="0"
-                  title="Click para ver detalle"
-                >
-                  <div>
-                    <div class="fw-semibold">{{ r["Descripcion"] }}</div>
-                    <div class="text-muted small mono">{{ r["Codigo"] }}</div>
+        <hr class="my-4">
+
+        {% if results is not None %}
+          {% if results|length > 0 %}
+            <div class="alert alert-primary py-2 mb-3" style="background:var(--c-primary-50); border:1px solid #d5e5ff;">
+              Resultados encontrados: <strong>{{ results|length }}</strong>
+            </div>
+
+            <div class="list-group">
+              {% for cod, desc in results %}
+                <a class="list-group-item list-group-item-action"
+                   href="{{ url_for('index', q=q, detalle=desc) }}">
+                  <div class="d-flex w-100 justify-content-between">
+                    <div class="fw-semibold">{{ desc }}</div>
+                    <small class="item-code">{{ cod }}</small>
                   </div>
-                </div>
+                </a>
               {% endfor %}
             </div>
           {% else %}
@@ -94,149 +223,105 @@ TEMPLATE = """
       </div>
     </div>
 
-    <div class="text-center mt-4 text-muted">
+    <div class="text-center mt-4 muted">
       Hecho para uso interno – Inventario consolidado • Ferretería El Cedro
     </div>
+
   </div>
-
-  <script>
-    // Carga el detalle vía API y pinta la tabla superior
-    async function cargarDetallePorCodigo(codigo, descripcion){
-      const titulo = document.getElementById('detalle-titulo');
-      const cuerpo = document.getElementById('detalle-body');
-      titulo.innerHTML = 'Detalle: <span class="text-success">' + (descripcion || codigo) + '</span>';
-      cuerpo.innerHTML = '<tr><td colspan="3" class="py-3 text-center text-muted">Cargando...</td></tr>';
-
-      try{
-        const resp = await fetch('/api/detalle?codigo=' + encodeURIComponent(codigo));
-        if(!resp.ok){ throw new Error('Error HTTP ' + resp.status); }
-        const data = await resp.json();
-
-        if(!data.ok || data.rows.length === 0){
-          cuerpo.innerHTML = '<tr><td colspan="3" class="py-3 text-center text-muted">Sin datos para este producto.</td></tr>';
-          return;
-        }
-
-        let html = '';
-        for(const row of data.rows){
-          html += '<tr>'
-               +   '<td>' + row.Sucursal + '</td>'
-               +   '<td>' + row.Existencia + '</td>'
-               +   '<td>' + (row.Clasificacion || '') + '</td>'
-               + '</tr>';
-        }
-        cuerpo.innerHTML = html;
-
-        // Subir a la tabla
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-
-      }catch(err){
-        console.error(err);
-        cuerpo.innerHTML = '<tr><td colspan="3" class="py-3 text-center text-danger">Ocurrió un error cargando el detalle.</td></tr>';
-      }
-    }
-
-    // Click en cualquier renglón de resultado
-    document.addEventListener('click', function(ev){
-      const row = ev.target.closest('.result-item');
-      if(row){
-        const codigo = row.getAttribute('data-codigo');
-        const descripcion = row.getAttribute('data-descripcion');
-        cargarDetallePorCodigo(codigo, descripcion);
-      }
-    });
-
-    // (Opcional) Enter/Espacio para accesibilidad
-    document.addEventListener('keydown', function(ev){
-      const row = ev.target.closest('.result-item');
-      if(row && (ev.key === 'Enter' || ev.key === ' ')){
-        ev.preventDefault();
-        const codigo = row.getAttribute('data-codigo');
-        const descripcion = row.getAttribute('data-descripcion');
-        cargarDetallePorCodigo(codigo, descripcion);
-      }
-    });
-
-    // Limpiar tabla
-    document.getElementById('btn-limpiar').addEventListener('click', function(){
-      document.getElementById('detalle-titulo').innerHTML =
-        'Detalle: <span class="text-muted">selecciona un producto</span>';
-      document.getElementById('detalle-body').innerHTML =
-        '<tr class="text-muted"><td colspan="3" class="py-3 text-center">Selecciona un producto para ver el detalle por sucursal</td></tr>';
-    });
-
-    // Si llegó con ?auto=CODIGO, cargar automáticamente
-    {% if auto_codigo and auto_desc %}
-      cargarDetallePorCodigo("{{ auto_codigo }}", "{{ auto_desc|e }}");
-    {% endif %}
-  </script>
 </body>
 </html>
 """
 
-def _db():
-    return sqlite3.connect("inventario_el_cedro.db")
+# ------------------ Lógica de datos ------------------ #
+
+def buscar_productos_sin_fts(conn, q):
+    """
+    Búsqueda robusta por LIKE (sin FTS).
+    Separa q en tokens y exige que TODAS aparezcan en (Descripcion O Codigo).
+    Devuelve productos únicos (Codigo, Descripcion).
+    """
+    tokens = [t.strip() for t in q.split() if t.strip()]
+    if not tokens:
+        return []
+
+    where_parts = []
+    params = []
+    for t in tokens:
+        where_parts.append("(Descripcion LIKE ? OR Codigo LIKE ?)")
+        like = f"%{t}%"
+        params.extend([like, like])
+
+    where_sql = " AND ".join(where_parts)
+
+    sql = f"""
+        SELECT Codigo, Descripcion
+        FROM inventario
+        WHERE {where_sql}
+        GROUP BY Codigo, Descripcion
+        ORDER BY Descripcion
+        LIMIT 100;
+    """
+    cur = conn.cursor()
+    cur.execute(sql, params)
+    return cur.fetchall()
+
+
+def traer_detalle_por_descripcion(conn, descripcion):
+    """
+    Devuelve (Sucursal, Existencia, Clasificacion) para una Descripcion exacta.
+    Ordena sucursales en un orden práctico.
+    """
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT Sucursal, Existencia, Clasificacion
+        FROM inventario
+        WHERE Descripcion = ?
+        ORDER BY CASE Sucursal
+             WHEN 'ADE' THEN 1
+             WHEN 'EX'  THEN 2
+             WHEN 'Global' THEN 3
+             WHEN 'HI' THEN 4
+             WHEN 'MT' THEN 5
+             WHEN 'SA' THEN 6
+             ELSE 99
+        END, Sucursal;
+    """, (descripcion,))
+    return cur.fetchall()
+
 
 @app.route("/", methods=["GET"])
 def index():
-    q = (request.args.get("q") or "").strip()
+    q = request.args.get("q", "").strip()
+    detalle_nombre = request.args.get("detalle", "").strip()
+
     results = None
-    auto_codigo = None
-    auto_desc = None
+    detalle_rows = []
 
+    conn = sqlite3.connect("inventario_el_cedro.db")
+
+    # Lista de productos
     if q:
-        tokens = [t for t in q.split() if t]
-        like = "%" + "%".join(tokens) + "%" if tokens else "%"
-        conn = _db()
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT Codigo, Descripcion
-            FROM inventario
-            WHERE Descripcion LIKE ? OR Codigo LIKE ?
-            GROUP BY Codigo, Descripcion
-            ORDER BY Descripcion
-            LIMIT 100;
-        """, (like, like))
-        rows = cur.fetchall()
-        conn.close()
-        results = [{"Codigo": r[0], "Descripcion": r[1]} for r in rows]
+        try:
+            results = buscar_productos_sin_fts(conn, q)
+        except Exception:
+            results = []
 
-        auto_codigo = request.args.get("codigo")
-        auto_desc   = request.args.get("detalle")
+    # Detalle por sucursal
+    if detalle_nombre:
+        try:
+            detalle_rows = traer_detalle_por_descripcion(conn, detalle_nombre)
+        except Exception:
+            detalle_rows = []
+
+    conn.close()
 
     return render_template_string(
         TEMPLATE,
         q=q,
         results=results,
-        auto_codigo=auto_codigo,
-        auto_desc=auto_desc
+        detalle_nombre=detalle_nombre,
+        detalle_rows=detalle_rows
     )
-
-@app.route("/api/detalle", methods=["GET"])
-def api_detalle():
-    codigo = (request.args.get("codigo") or "").strip()
-    if not codigo:
-        return jsonify(ok=False, error="Falta 'codigo'"), 400
-
-    conn = _db()
-    cur  = conn.cursor()
-    cur.execute("""
-        SELECT Sucursal,
-               SUM(Existencia) AS Existencia,
-               MAX(Clasificacion) AS Clasificacion
-        FROM inventario
-        WHERE Codigo = ?
-        GROUP BY Sucursal
-        ORDER BY Sucursal;
-    """, (codigo,))
-    rows = cur.fetchall()
-    conn.close()
-
-    data = [
-        {"Sucursal": r[0], "Existencia": float(r[1]) if r[1] is not None else 0.0, "Clasificacion": r[2]}
-        for r in rows
-    ]
-    return jsonify(ok=True, rows=data)
 
 if __name__ == "__main__":
   app.run(host="0.0.0.0", port=8000, debug=False)
