@@ -12,26 +12,53 @@ TEMPLATE = r"""
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <style>
-    :root{
-      --azul: #1d4ed8;
-      --azul-oscuro: #1e3a8a;
-      --azul-claro: #eff6ff;
-      --blanco: #ffffff;
-      --gris-borde: #e5e7eb;
-      --texto: #0f172a;
-      --gris-suave: #f9fafb;
+    body {
+      background: #f3f6fc;
+      color: #0f172a;
+      font-family: 'Inter', sans-serif;
     }
-    body{ background:var(--gris-suave); color:var(--texto); font-family: 'Inter', sans-serif;}
-    .navbar{ background:linear-gradient(90deg, var(--azul-oscuro), var(--azul)); box-shadow:0 4px 10px rgba(0,0,0,.15);}
-    .navbar-brand{ font-weight:600;}
-    .card{ border:none; border-radius:16px; box-shadow:0 4px 16px rgba(0,0,0,.08);}
-    .card-header{ background:var(--azul-claro); color:var(--azul-oscuro); font-weight:600;}
-    .table thead th{ background:#e0ecff; color:#1e3a8a; font-weight:600;}
-    .btn-primary{ background:var(--azul); border:none; }
-    .btn-primary:hover{ background:var(--azul-oscuro);}
-    .btn-outline-secondary:hover{ background:var(--azul-claro); color:var(--azul-oscuro);}
-    .list-group-item:hover{ background:var(--azul-claro);}
-    .sticky-top-card{ position:sticky; top:0.75rem; z-index:1030; }
+    .navbar {
+      background: linear-gradient(90deg, #1e3a8a, #1d4ed8);
+      box-shadow: 0 4px 12px rgba(0,0,0,.2);
+    }
+    .navbar-brand {
+      font-weight: 600;
+      color: white;
+    }
+    .card {
+      border: none;
+      border-radius: 14px;
+      box-shadow: 0 4px 16px rgba(0,0,0,.08);
+      background: white;
+    }
+    .card-header {
+      background: #e7f0ff;
+      color: #1e3a8a;
+      font-weight: 600;
+    }
+    .table thead th {
+      background: #e0ecff;
+      color: #1e3a8a;
+    }
+    .btn-primary {
+      background: #1d4ed8;
+      border: none;
+    }
+    .btn-primary:hover {
+      background: #1e3a8a;
+    }
+    .btn-outline-secondary:hover {
+      background: #e8f0ff;
+      color: #1e3a8a;
+    }
+    .list-group-item:hover {
+      background: #f0f6ff;
+    }
+    .sticky-top-card {
+      position: sticky;
+      top: 0.75rem;
+      z-index: 1030;
+    }
   </style>
 </head>
 <body>
@@ -43,7 +70,7 @@ TEMPLATE = r"""
 
   <div class="container mb-5">
 
-    <!-- === Tabla de Detalle Arriba === -->
+    <!-- Tabla Detalle Arriba -->
     <div class="card sticky-top-card mb-4">
       <div class="card-header">
         {% if detalle_nombre %}
@@ -73,13 +100,13 @@ TEMPLATE = r"""
       </div>
     </div>
 
-    <!-- === Buscador Abajo === -->
+    <!-- Buscador -->
     <div class="card">
       <div class="card-body">
         <form method="get" class="row g-2 align-items-center" action="{{ url_for('index') }}">
           <div class="col-md-9">
             <input name="q" class="form-control form-control-lg" placeholder="Buscar producto o código..." value="{{ q or '' }}">
-            <div class="form-text">Tip: puedes buscar por varios términos (ej. <code>taladro 1/2 truper</code>)</div>
+            <div class="form-text">Ejemplo: <code>taladro 1/2 truper</code></div>
           </div>
           <div class="col-md-3 d-grid">
             <button class="btn btn-primary btn-lg" type="submit">Buscar</button>
@@ -94,7 +121,7 @@ TEMPLATE = r"""
             <div class="list-group">
               {% for cod, desc in results %}
                 <a href="{{ url_for('index', q=q, detalle=desc) }}" class="list-group-item list-group-item-action">
-                  <div class="d-flex justify-content-between align-items-center">
+                  <div class="d-flex justify-content-between">
                     <strong>{{ desc }}</strong>
                     <small class="text-muted">{{ cod }}</small>
                   </div>
@@ -115,8 +142,6 @@ TEMPLATE = r"""
 </body>
 </html>
 """
-
-# ==== FUNCIONES ====
 
 def buscar_productos(conn, q):
     tokens = [t.strip() for t in q.split() if t.strip()]
@@ -151,8 +176,6 @@ def traer_detalle(conn, desc):
     """, (desc,))
     return cur.fetchall()
 
-# ==== RUTA PRINCIPAL ====
-
 @app.route("/", methods=["GET"])
 def index():
     q = request.args.get("q", "").strip()
@@ -160,15 +183,19 @@ def index():
     results, detalle_rows = None, []
 
     conn = sqlite3.connect("inventario_el_cedro.db")
-
     if q:
         results = buscar_productos(conn, q)
     if detalle_nombre:
         detalle_rows = traer_detalle(conn, detalle_nombre)
-
     conn.close()
-    return render_template_string(TEMPLATE, q=q, results=results,
-                                  detalle_nombre=detalle_nombre, detalle_rows=detalle_rows)
+
+    return render_template_string(
+        TEMPLATE,
+        q=q,
+        results=results,
+        detalle_nombre=detalle_nombre,
+        detalle_rows=detalle_rows
+    )
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000, debug=False)
