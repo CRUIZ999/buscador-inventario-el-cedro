@@ -40,6 +40,9 @@ TPL = """
     :root{
       --azul:#1e40af; --azul-2:#2563eb; --azul-claro:#e8f0ff;
       --gris:#475569; --bg:#f5f8ff;
+      /* CAMBIO 1: Se añaden los colores */
+      --rojo: #dc2626;
+      --naranja: #ea580c;
     }
     *{box-sizing:border-box}
     body{margin:0;background:var(--bg);font-family:Segoe UI,system-ui,Arial,sans-serif}
@@ -50,13 +53,16 @@ TPL = """
     th{background:var(--azul-claro);color:var(--azul);text-align:left;padding:10px}
     td{padding:10px;border-bottom:1px solid #f1f5f9}
     
-    /* CAMBIO 1: Estilos para la nueva tabla horizontal */
     .tabla-detalle th, .tabla-detalle td { text-align: center; }
     .tabla-detalle th:first-child, .tabla-detalle td:first-child { 
       text-align: left; 
       font-weight: 700;
       color: var(--azul);
     }
+
+    /* CAMBIO 2: Se añaden los estilos para las clases de color */
+    .stock-d { color: var(--rojo); font-weight: 700; }
+    .stock-c { color: var(--naranja); font-weight: 700; }
 
     .search{display:flex;gap:12px;margin-top:18px}
     .search input{flex:1;padding:12px 14px;border:1px solid #cbd5e1;border-radius:8px;font-size:16px}
@@ -121,7 +127,10 @@ TPL = """
       <button class="btn" type="submit">Buscar</button>
     </form>
     
-  </div> {% if resultados %}
+  </div> 
+
+
+  {% if resultados %}
     <div style="margin-top:10px">
       {% for r in resultados %}
         <div class="item" onclick="sel('{{ r['Descripcion']|e }}')">
@@ -158,7 +167,7 @@ TPL = """
       if (!response.ok) {
         throw new Error('Error de red');
       }
-      const filas = await response.json(); // Esto trae las 5 filas de la DB
+      const filas = await response.json(); 
 
       if (filas.length === 0) {
         tbody.innerHTML = `
@@ -173,28 +182,34 @@ TPL = """
         return;
       }
 
-      // Convertimos las filas en un objeto para fácil acceso
       const datos = {};
       for (const r of filas) {
         datos[r.Sucursal] = r;
       }
       
-      // Orden de las sucursales
       const sucursales = ['HI', 'EX', 'MT', 'SA', 'ADE'];
 
-      // Construir la fila de Existencias
       let filaExistencias = '<td><b>EXISTENCIAS</b></td>';
-      for (const suc of sucursales) {
-        filaExistencias += `<td>${datos[suc] ? datos[suc].Existencia : 0}</td>`;
-      }
-
-      // Construir la fila de Clasificación
       let filaClasificacion = '<td><b>CLASIFICACION</b></td>';
+
       for (const suc of sucursales) {
-        filaClasificacion += `<td>${datos[suc] ? datos[suc].Clasificacion : '-'}</td>`;
+        const d = datos[suc]; // Datos de la sucursal actual
+        
+        // --- CAMBIO 3: Lógica para aplicar colores ---
+        let claseColor = ''; // Clase CSS por defecto (ninguna)
+        if (d) {
+          if (d.Clasificacion === 'D') {
+            claseColor = 'stock-d'; // Clase roja
+          } else if (d.Clasificacion === 'C') {
+            claseColor = 'stock-c'; // Clase naranja
+          }
+        }
+        
+        // Aplicamos la clase (ej. class="stock-d") a la celda de existencia
+        filaExistencias += `<td class="${claseColor}">${d ? parseInt(d.Existencia) : 0}</td>`;
+        filaClasificacion += `<td>${d ? d.Clasificacion : '-'}</td>`;
       }
 
-      // Inyectar el HTML final en la tabla
       tbody.innerHTML = `
         <tr>${filaExistencias}</tr>
         <tr>${filaClasificacion}</tr>
@@ -215,8 +230,6 @@ TPL = """
 @app.route("/")
 def home():
     query = request.args.get("q", "", type=str).strip()
-    # CAMBIO 4: Ya no cargamos los detalles en la ruta principal
-    # La tabla ahora siempre empieza vacía y se llena con JS
     
     resultados = []
     
@@ -235,7 +248,6 @@ def home():
                 (like_query, like_query),
             )
         
-        # Pasamos valores vacíos a la plantilla, JS se encargará
         return render_template_string(
             TPL,
             query=query,
@@ -255,7 +267,6 @@ def api_detalle():
     if not nombre:
         return jsonify({"error": "No se proporcionó nombre"}), 400
 
-    # Mantenemos la consulta que ordena y filtra
     detalle_rows = q(
         """
         SELECT Sucursal, Existencia, Clasificacion
