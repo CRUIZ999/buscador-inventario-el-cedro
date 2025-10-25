@@ -10,7 +10,6 @@ DB_PATH = "inventario_el_cedro.db"
 
 # ------------------ utilidades DB ------------------
 def q(query, params=()):
-    # Esta función ahora maneja errores si la DB no existe
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
@@ -23,13 +22,24 @@ def q(query, params=()):
         print(f"Error en la base de datos: {e}")
         return []
 
-# ------------------ plantilla HTML (Sin cambios) ------------------
+def build_fts_query(user_q: str) -> str:
+    """
+    Convierte 'tinaco 1100 truper' → 'tinaco* 1100* truper*'
+    para usar con FTS5.
+    """
+    tokens = [t.strip() for t in user_q.split() if t.strip()]
+    if not tokens:
+        return ""
+    return " ".join(f"{t}*" for t in tokens)
+
+
+# ------------------ plantilla HTML ------------------
 TPL = """
 <!doctype html>
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <title>TEST v6 • Ferretería El Cedro • Buscador de Inventario</title>
+  <title>Ferretería El Cedro • Buscador de Inventario</title>
   <style>
     :root{
       --azul:#1e40af; --azul-2:#2563eb; --azul-claro:#e8f0ff;
@@ -56,6 +66,7 @@ TPL = """
 </head>
 <body>
 <header>Ferretería El Cedro • Buscador de Inventario</header>
+
 <div class="wrap">
   <h3>🔹 Detalle:
     {% if detalle %}
@@ -64,6 +75,7 @@ TPL = """
       Selecciona un producto
     {% endif %}
   </h3>
+
   <table>
     <thead>
       <tr><th>Sucursal</th><th>Existencia</th><th>Clasificación</th></tr>
@@ -82,10 +94,12 @@ TPL = """
       {% endif %}
     </tbody>
   </table>
+
   <form method="get" class="search">
     <input type="text" name="q" placeholder="Buscar producto o código..." value="{{ query or '' }}">
     <button class="btn" type="submit">Buscar</button>
   </form>
+
   {% if resultados %}
     <div style="margin-top:10px">
       {% for r in resultados %}
@@ -99,7 +113,9 @@ TPL = """
     <div class="nores">Sin resultados.</div>
   {% endif %}
 </div>
+
 <div class="foot">Hecho para uso interno – Inventario consolidado • Ferretería El Cedro</div>
+
 <script>
   function sel(nombre){
     location.href='/?detalle='+encodeURIComponent(nombre);
@@ -113,28 +129,32 @@ TPL = """
 # ------------------ rutas ------------------
 @app.route("/")
 def home():
-    # --- PRUEBA V6: Esta ruta ahora usa la búsqueda LIKE ---
-    # La búsqueda FTS original está comentada
-    
     query = request.args.get("q", "", type=str).strip()
     detalle = request.args.get("detalle", "", type=str).strip()
     resultados = []
     detalle_rows = []
 
     try:
+        # --- Búsqueda por FTS (Rápida) ---
         if query:
-            like_query = f"%{query}%"
-            # Usamos la búsqueda simple LIKE que probamos antes
-            resultados = q(
-                """
-                SELECT Codigo, Descripcion
-                FROM inventario_plain
-                WHERE Descripcion LIKE ? OR Codigo LIKE ?
-                LIMIT 30
-                """,
-                (like_query, like_query),
-            )
+            fts = build_fts_query(query)
+            if fts:
+                # LA CORRECCIÓN ESTÁ AQUÍ: "SELECT DISTINCT"
+                resultados = q(
+                    """
+                    SELECT DISTINCT Codigo, Descripcion
+                    FROM inventario_plain
+                    WHERE Codigo IN (
+                        SELECT Codigo
+                        FROM inventario
+                        WHERE inventario MATCH ?
+                    )
+                    LIMIT 30
+                    """,
+                    (fts,),
+                )
 
+        # --- detalle por sucursal ---
         if detalle:
             detalle_rows = q(
                 """
@@ -153,11 +173,10 @@ def home():
             detalle_rows=detalle_rows,
         )
     except Exception as e:
-        # Si algo falla (ej. TPL no definido), esto lo atrapará
         return f"<h1>Error Crítico en la App</h1><p>{str(e)}</p>", 500
 
 
-# --- endpoints de depuración (los dejamos para probar) ---
+# --- endpoints de depuración ---
 @app.route("/debug_db")
 def debug_db():
     try:
@@ -172,18 +191,14 @@ def debug_db():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@app.route("/debug_tinaco")
-def debug_tinaco():
+@app.route("/debug_sample")
+def debug_sample():
     try:
-        like_query = "%tinaco%"
-        r = q("SELECT Codigo, Descripcion FROM inventario_plain WHERE Descripcion LIKE ? LIMIT 10", (like_query,))
-        return jsonify({
-            "buscando_con_like": like_query,
-            "resultados_encontrados": len(r),
-            "primeros_10_ejemplos": [dict(row) for row in r]
-        })
+        sample = q("SELECT Codigo, Descripcion, Existencia, Clasificacion, Sucursal FROM inventario_plain LIMIT 10")
+        return jsonify({"sample": [dict(r) for r in sample]})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 # --- ejecución ---
 if __name__ == "__main__":
