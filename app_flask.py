@@ -45,7 +45,28 @@ TPL = """
     }
     *{box-sizing:border-box}
     body{margin:0;background:var(--bg);font-family:Segoe UI,system-ui,Arial,sans-serif}
-    header{background:linear-gradient(90deg,var(--azul),var(--azul-2));color:#fff;padding:16px 28px;font-weight:700;font-size:20px;box-shadow:0 2px 6px rgba(0,0,0,.18)}
+    
+    /* --- CAMBIO 1: Hacer el header 'sticky' --- */
+    header{
+      background:linear-gradient(90deg,var(--azul),var(--azul-2));
+      color:#fff;
+      /* Se quita padding vertical y se añade altura fija */
+      height: 60px;
+      padding: 0 28px;
+      display: flex;
+      align-items: center;
+      /* Fin de cambio de altura */
+      font-weight:700;
+      font-size:20px;
+      box-shadow:0 2px 6px rgba(0,0,0,.18);
+      
+      /* Propiedades 'sticky' */
+      position: -webkit-sticky;
+      position: sticky;
+      top: 0;
+      z-index: 20; /* z-index alto para estar encima de todo */
+    }
+
     .wrap{max-width:1100px;margin:32px auto;background:#fff;border-radius:12px;padding:22px 28px;box-shadow:0 6px 14px rgba(0,0,0,.08)}
     h3{margin:6px 0 14px 0;color:var(--azul)}
     table{width:100%;border-collapse:collapse;margin-top:6px}
@@ -59,7 +80,6 @@ TPL = """
       color: var(--azul);
     }
 
-    /* CAMBIO 1: Se añade la clase .stock-sm para 'Sin Mov' en rojo */
     .stock-sm { color: var(--rojo); font-weight: 700; }
     .stock-c { color: var(--naranja); font-weight: 700; }
 
@@ -76,9 +96,10 @@ TPL = """
     .sticky-details {
       position: -webkit-sticky;
       position: sticky;
-      top: 0;
+      /* --- CAMBIO 2: Bajar el 'top' para que quepa el header --- */
+      top: 60px; /* Coincide con la altura del header */
       background: #fff;
-      z-index: 10;
+      z-index: 10; /* z-index menor que el header */
       margin-top: -22px;
       margin-left: -28px;
       margin-right: -28px;
@@ -196,32 +217,27 @@ TPL = """
         
         let claseColor = '';
         let clasificacionTexto = '-';
-        let existenciaNum = 0; // Guardamos la existencia como número
+        let existenciaNum = 0; 
 
         if (d) {
-          // Obtenemos la existencia primero
           existenciaNum = parseInt(d.Existencia);
           
           if (d.Clasificacion) { 
             clasificacionTexto = d.Clasificacion.trim(); 
           }
           
-          // --- CAMBIO 2: Lógica de color actualizada ---
           if (clasificacionTexto === 'C') {
             claseColor = 'stock-c'; // Naranja
           } else if (clasificacionTexto === 'Sin Mov' && existenciaNum > 0) {
             claseColor = 'stock-sm'; // Rojo
           }
           
-          // --- CAMBIO 3: Abreviar "Sin Mov" ---
           if (clasificacionTexto === 'Sin Mov') {
             clasificacionTexto = 'S/M';
           }
         }
         
-        // Usamos la variable 'existenciaNum' que ya es un entero
         filaExistencias += `<td class="${claseColor}">${existenciaNum}</td>`;
-        // Usamos la variable 'clasificacionTexto' que puede estar abreviada
         filaClasificacion += `<td class="${claseColor}">${clasificacionTexto}</td>`;
       }
 
