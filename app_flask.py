@@ -59,7 +59,8 @@ TPL = """
       color: var(--azul);
     }
 
-    .stock-d { color: var(--rojo); font-weight: 700; }
+    /* CAMBIO 1: Se añade la clase .stock-sm para 'Sin Mov' en rojo */
+    .stock-sm { color: var(--rojo); font-weight: 700; }
     .stock-c { color: var(--naranja); font-weight: 700; }
 
     .search{display:flex;gap:12px;margin-top:18px}
@@ -118,3 +119,215 @@ TPL = """
             <td colspan="5">-</td>
         </tr>
       </tbody>
+    </table>
+    
+    <form method="get" class="search">
+      <input type="text" name="q" placeholder="Buscar producto o código..." value="{{ query or '' }}">
+      <button class="btn" type="submit">Buscar</button>
+    </form>
+    
+  </div> 
+
+
+  {% if resultados %}
+    <div style="margin-top:10px">
+      {% for r in resultados %}
+        <div class="item" onclick="sel('{{ r['Descripcion']|e }}')">
+          <b>{{ r['Descripcion'] }}</b>
+          <span class="badge">— {{ r['Codigo'] }}</span>
+        </div>
+      {% endfor %}
+    </div>
+  {% elif query %}
+    <div class="nores">Sin resultados.</div>
+  {% endif %}
+</div>
+
+<div class="foot">Hecho para uso interno – Inventario consolidado • Ferretería El Cedro</div>
+
+<script>
+  async function sel(nombre) {
+    const titulo = document.getElementById('detalle-titulo');
+    const tbody = document.getElementById('detalle-tbody');
+
+    titulo.innerText = '🔹 Detalle: ' + nombre;
+    tbody.innerHTML = `
+        <tr>
+            <td>EXISTENCIAS</td>
+            <td colspan="5">Cargando...</td>
+        </tr>
+        <tr>
+            <td>CLASIFICACION</td>
+            <td colspan="5">-</td>
+        </tr>`;
+
+    try {
+      const response = await fetch('/api/detalle?nombre=' + encodeURIComponent(nombre));
+      if (!response.ok) {
+        throw new Error('Error de red');
+      }
+      const filas = await response.json(); 
+
+      if (filas.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td>EXISTENCIAS</td>
+                <td colspan="5">No se encontraron detalles</td>
+            </tr>
+            <tr>
+                <td>CLASIFICACION</td>
+                <td colspan="5">-</td>
+            </tr>`;
+        return;
+      }
+
+      const datos = {};
+      for (const r of filas) {
+        datos[r.Sucursal] = r;
+      }
+      
+      const sucursales = ['HI', 'EX', 'MT', 'SA', 'ADE'];
+
+      let filaExistencias = '<td><b>EXISTENCIAS</b></td>';
+      let filaClasificacion = '<td><b>CLASIFICACION</b></td>';
+
+      for (const suc of sucursales) {
+        const d = datos[suc]; 
+        
+        let claseColor = '';
+        let clasificacionTexto = '-';
+        let existenciaNum = 0; // Guardamos la existencia como número
+
+        if (d) {
+          // Obtenemos la existencia primero
+          existenciaNum = parseInt(d.Existencia);
+          
+          if (d.Clasificacion) { 
+            clasificacionTexto = d.Clasificacion.trim(); 
+          }
+          
+          // --- CAMBIO 2: Lógica de color actualizada ---
+          if (clasificacionTexto === 'C') {
+            claseColor = 'stock-c'; // Naranja
+          } else if (clasificacionTexto === 'Sin Mov' && existenciaNum > 0) {
+            claseColor = 'stock-sm'; // Rojo
+          }
+          
+          // --- CAMBIO 3: Abreviar "Sin Mov" ---
+          if (clasificacionTexto === 'Sin Mov') {
+            clasificacionTexto = 'S/M';
+          }
+        }
+        
+        // Usamos la variable 'existenciaNum' que ya es un entero
+        filaExistencias += `<td class="${claseColor}">${existenciaNum}</td>`;
+        // Usamos la variable 'clasificacionTexto' que puede estar abreviada
+        filaClasificacion += `<td class="${claseColor}">${clasificacionTexto}</td>`;
+      }
+
+      tbody.innerHTML = `
+        <tr>${filaExistencias}</tr>
+        <tr>${filaClasificacion}</tr>
+      `;
+
+    } catch (error) {
+      console.error('Error al cargar detalle:', error);
+      tbody.innerHTML = '<tr><td colspan="6">Error al cargar los datos.</td></tr>';
+    }
+  }
+</script>
+</body>
+</html>
+"""
+
+
+# ------------------ rutas ------------------
+@app.route("/")
+def home():
+    query = request.args.get("q", "", type=str).strip()
+    
+    resultados = []
+    
+    try:
+        if query:
+            like_query = f"%{query}%"
+            resultados = q(
+                """
+                SELECT Codigo, Descripcion
+                FROM inventario_plain
+                WHERE (Descripcion LIKE ? OR Codigo LIKE ?)
+                  AND Sucursal = 'Global'
+                  AND CAST(Existencia AS REAL) > 0
+                LIMIT 30
+                """,
+                (like_query, like_query),
+            )
+        
+        return render_template_string(
+            TPL,
+            query=query,
+            detalle="",
+            resultados=resultados,
+            detalle_rows=[],
+        )
+    except Exception as e:
+        return f"<h1>Error Crítico en la App</h1><p>{str(e)}</p>", 500
+
+
+# --- ruta de API ---
+@app.route("/api/detalle")
+def api_detalle():
+    nombre = request.args.get("nombre", "", type=str).strip()
+    
+    if not nombre:
+        return jsonify({"error": "No se proporcionó nombre"}), 400
+
+    detalle_rows = q(
+        """
+        SELECT Sucursal, Existencia, Clasificacion
+        FROM inventario_plain
+        WHERE Descripcion = ? AND Sucursal != 'Global'
+        ORDER BY
+          CASE Sucursal
+            WHEN 'HI' THEN 1
+            WHEN 'EX' THEN 2
+            WHEN 'MT' THEN 3
+            WHEN 'SA' THEN 4
+            WHEN 'ADE' THEN 5
+            ELSE 6
+          END
+        """,
+        (nombre,),
+    )
+    
+    return jsonify([dict(r) for r in detalle_rows])
+
+
+# --- endpoints de depuración ---
+@app.route("/debug_db")
+def debug_db():
+    try:
+        r1 = q("SELECT COUNT(*) AS c FROM inventario_plain")
+        r2 = q("SELECT COUNT(*) AS c FROM inventario")
+        r3 = q("SELECT name FROM sqlite_master WHERE type='table' AND name='inventario'")
+        return jsonify({
+            "filas_en_tabla_datos_plain": r1[0]["c"] if r1 else -1,
+            "filas_en_tabla_busqueda_fts": r2[0]["c"] if r2 else -1,
+            "existe_tabla_fts": bool(r3),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/debug_sample")
+def debug_sample():
+    try:
+        sample = q("SELECT Codigo, Descripcion, Existencia, Clasificacion, Sucursal FROM inventario_plain LIMIT 10")
+        return jsonify({"sample": [dict(r) for r in sample]})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# --- ejecución ---
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port, debug=False)
