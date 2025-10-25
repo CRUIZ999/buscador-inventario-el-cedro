@@ -31,17 +31,14 @@ def build_fts_query(user_q: str) -> str:
     # Usa prefijos (*) para buscar palabras que empiecen con...
     return " ".join(f"{re.escape(t)}*" for t in tokens)
 
-# --- CAMBIO: Función para resaltar ---
+# --- Función para resaltar ---
 def highlight_term(text, term):
     """Resalta (con <mark>) todas las ocurrencias de 'term' en 'text', ignorando mayúsculas."""
     if not term:
         return text
     try:
-        # Usa regex para encontrar todas las ocurrencias ignorando mayúsculas/minúsculas
-        # y las envuelve en <mark>...</mark>
         return re.sub(f'({re.escape(term)})', r'<mark>\1</mark>', text, flags=re.IGNORECASE)
     except re.error:
-        # Si el término de búsqueda causa un error de regex, devuelve el texto original
         return text
 
 
@@ -58,8 +55,7 @@ TPL = """
       --gris:#475569; --bg:#f5f8ff;
       --rojo: #dc2626;
       --naranja: #f97316;
-      /* --- CAMBIO: Color para resaltar --- */
-      --amarillo-resaltar: #fef08a; /* yellow-200 */
+      --amarillo-resaltar: #fef08a;
     }
     *{box-sizing:border-box}
     body{margin:0;background:var(--bg);font-family:Segoe UI,system-ui,Arial,sans-serif}
@@ -99,12 +95,9 @@ TPL = """
     .item-desc b{color:#0f172a}
     .item-desc .badge{color:#0f172a}
     
-    /* --- CAMBIO: Estilo para el resaltado --- */
     .item-desc mark { 
-      background-color: var(--amarillo-resaltar); 
-      padding: 0 2px; 
-      border-radius: 3px;
-      color: #1e293b; /* slate-800 */
+      background-color: var(--amarillo-resaltar); padding: 0 2px; 
+      border-radius: 3px; color: #1e293b; 
     }
     
     .stock-badge { flex-shrink: 0; font-weight: 700; color: var(--azul); padding-left: 15px; }
@@ -126,20 +119,12 @@ TPL = """
       box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
     }
     
-    /* --- CAMBIO: Estilos para el Spinner de Carga --- */
     .spinner {
-      border: 4px solid rgba(0, 0, 0, 0.1);
-      width: 36px;
-      height: 36px;
-      border-radius: 50%;
-      border-left-color: var(--azul);
-      animation: spin 1s ease infinite;
-      margin: 10px auto; /* Centrar el spinner */
+      border: 4px solid rgba(0, 0, 0, 0.1); width: 36px; height: 36px;
+      border-radius: 50%; border-left-color: var(--azul);
+      animation: spin 1s ease infinite; margin: 10px auto; 
     }
-    @keyframes spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
-    }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
@@ -153,23 +138,12 @@ TPL = """
     <table class="tabla-detalle">
       <thead>
         <tr id="detalle-thead">
-          <th>SUCURSALES</th>
-          <th>HI</th>
-          <th>EX</th>
-          <th>MT</th>
-          <th>SA</th>
-          <th>ADE</th>
+          <th>SUCURSALES</th><th>HI</th><th>EX</th><th>MT</th><th>SA</th><th>ADE</th>
         </tr>
       </thead>
       <tbody id="detalle-tbody">
-        <tr>
-            <td>EXISTENCIAS</td>
-            <td colspan="5">Selecciona un producto</td>
-        </tr>
-        <tr>
-            <td>CLASIFICACION</td>
-            <td colspan="5">-</td>
-        </tr>
+        <tr><td>EXISTENCIAS</td><td colspan="5">Selecciona un producto</td></tr>
+        <tr><td>CLASIFICACION</td><td colspan="5">-</td></tr>
       </tbody>
     </table>
     
@@ -180,8 +154,7 @@ TPL = """
     
     <div class="filter-box">
       <input type="checkbox" name="filtro_stock" value="on" id="filtro_stock"
-             form="search-form"
-             onchange="this.form.submit()"
+             form="search-form" onchange="this.form.submit()"
              {% if filtro_stock_checked %}checked{% endif %}>
       <label for="filtro_stock">Mostrar solo con existencia</label>
     </div>
@@ -214,78 +187,39 @@ TPL = """
     const tbody = document.getElementById('detalle-tbody');
 
     titulo.innerText = '🔹 Detalle: ' + nombre;
-    
-    // --- CAMBIO: Mostrar spinner en lugar de texto ---
-    tbody.innerHTML = `
-        <tr>
-            <td colspan="6"> 
-              <div class="spinner"></div> 
-            </td>
-        </tr>`;
+    tbody.innerHTML = `<tr><td colspan="6"><div class="spinner"></div></td></tr>`;
 
     try {
       const response = await fetch('/api/detalle?nombre=' + encodeURIComponent(nombre));
-      if (!response.ok) {
-        throw new Error('Error de red');
-      }
+      if (!response.ok) throw new Error('Error de red');
       const filas = await response.json(); 
 
       if (filas.length === 0) {
-        tbody.innerHTML = `
-            <tr>
-                <td>EXISTENCIAS</td>
-                <td colspan="5">No se encontraron detalles</td>
-            </tr>
-            <tr>
-                <td>CLASIFICACION</td>
-                <td colspan="5">-</td>
-            </tr>`;
+        tbody.innerHTML = `<tr><td>EXISTENCIAS</td><td colspan="5">No se encontraron detalles</td></tr><tr><td>CLASIFICACION</td><td colspan="5">-</td></tr>`;
         return;
       }
 
       const datos = {};
-      for (const r of filas) {
-        datos[r.Sucursal] = r;
-      }
-      
+      filas.forEach(r => datos[r.Sucursal] = r);
       const sucursales = ['HI', 'EX', 'MT', 'SA', 'ADE'];
-
       let filaExistencias = '<td><b>EXISTENCIAS</b></td>';
       let filaClasificacion = '<td><b>CLASIFICACION</b></td>';
 
-      for (const suc of sucursales) {
+      sucursales.forEach(suc => {
         const d = datos[suc]; 
-        
-        let claseColor = '';
-        let clasificacionTexto = '-';
-        let existenciaNum = 0; 
-
+        let claseColor = '', clasificacionTexto = '-', existenciaNum = 0; 
         if (d) {
           existenciaNum = parseInt(d.Existencia);
-          
-          if (d.Clasificacion) { 
-            clasificacionTexto = d.Clasificacion.trim(); 
-          }
-          
-          if (clasificacionTexto === 'C') {
-            claseColor = 'stock-c';
-          } else if (clasificacionTexto === 'Sin Mov' && existenciaNum > 0) {
-            claseColor = 'stock-sm';
-          }
-          
-          if (clasificacionTexto === 'Sin Mov') {
-            clasificacionTexto = 'S/M';
-          }
+          if (d.Clasificacion) clasificacionTexto = d.Clasificacion.trim(); 
+          if (clasificacionTexto === 'C') claseColor = 'stock-c';
+          else if (clasificacionTexto === 'Sin Mov' && existenciaNum > 0) claseColor = 'stock-sm';
+          if (clasificacionTexto === 'Sin Mov') clasificacionTexto = 'S/M';
         }
-        
         filaExistencias += `<td class="${claseColor}">${existenciaNum}</td>`;
         filaClasificacion += `<td class="${claseColor}">${clasificacionTexto}</td>`;
-      }
+      });
 
-      tbody.innerHTML = `
-        <tr>${filaExistencias}</tr>
-        <tr>${filaClasificacion}</tr>
-      `;
+      tbody.innerHTML = `<tr>${filaExistencias}</tr><tr>${filaClasificacion}</tr>`;
 
     } catch (error) {
       console.error('Error al cargar detalle:', error);
@@ -295,7 +229,6 @@ TPL = """
 
   const searchForm = document.getElementById('search-form');
   const searchButton = document.getElementById('search-button');
-  
   if (searchForm) {
     searchForm.addEventListener('submit', function() {
       if (document.querySelector('input[name="q"]').value) {
@@ -321,41 +254,27 @@ def home():
         if query:
             fts_query = build_fts_query(query)
             if fts_query:
-                # --- CAMBIO: Usar FTS para velocidad ---
-                # 1. Obtenemos Codigos que coinciden con la búsqueda FTS
-                # 2. Usamos esos códigos para obtener los detalles Y el stock Global
-                # 3. Aplicamos el filtro de stock si está activado
-                
-                # Parámetros para la consulta SQL
+                # --- CAMBIO AQUÍ: Simplificar FTS con JOIN ---
                 params = [fts_query]
                 
                 sql = """
                     SELECT DISTINCT p.Codigo, p.Descripcion, p.Existencia
                     FROM inventario_plain p
+                    JOIN inventario f ON p.Codigo = f.Codigo -- Unir con la tabla FTS
                     WHERE p.Sucursal = 'Global'
-                      AND p.Codigo IN (
-                          SELECT Codigo 
-                          FROM inventario 
-                          WHERE inventario MATCH ? 
-                          LIMIT 100 -- Limitar resultados intermedios de FTS
-                      )
+                      AND f.inventario MATCH ? -- Aplicar MATCH en la tabla FTS unida
                 """
                 
-                # Añadir filtro de stock si el checkbox está activo
                 if filtro_stock == "on":
                     sql += " AND CAST(p.Existencia AS REAL) > 0"
-                    # No necesitamos añadir 'on' a params porque ya está en la condición SQL
                 
-                sql += " LIMIT 30" # Limitar resultados finales
+                sql += " LIMIT 30"
                 
-                resultados_raw = q(sql, tuple(params)) # Ejecutar la consulta
+                resultados_raw = q(sql, tuple(params)) 
 
-                # --- CAMBIO: Aplicar resaltado ---
                 resultados = []
                 for r in resultados_raw:
-                    # Convertir fila a diccionario mutable
                     res_dict = dict(r) 
-                    # Crear nueva clave con descripción resaltada
                     res_dict['HighlightedDesc'] = highlight_term(res_dict['Descripcion'], query)
                     resultados.append(res_dict)
 
@@ -368,7 +287,7 @@ def home():
             filtro_stock_checked=(filtro_stock == "on")
         )
     except Exception as e:
-        print(f"Error en la ruta home: {e}") # Log del error
+        print(f"Error en la ruta home: {e}") 
         return f"<h1>Error Crítico en la App</h1><p>{str(e)}</p>", 500
 
 
@@ -376,28 +295,12 @@ def home():
 @app.route("/api/detalle")
 def api_detalle():
     nombre = request.args.get("nombre", "", type=str).strip()
-    
-    if not nombre:
-        return jsonify({"error": "No se proporcionó nombre"}), 400
-
+    if not nombre: return jsonify({"error": "No se proporcionó nombre"}), 400
     detalle_rows = q(
-        """
-        SELECT Sucursal, Existencia, Clasificacion
-        FROM inventario_plain
-        WHERE Descripcion = ? AND Sucursal != 'Global'
-        ORDER BY
-          CASE Sucursal
-            WHEN 'HI' THEN 1
-            WHEN 'EX' THEN 2
-            WHEN 'MT' THEN 3
-            WHEN 'SA' THEN 4
-            WHEN 'ADE' THEN 5
-            ELSE 6
-          END
-        """,
+        """SELECT Sucursal, Existencia, Clasificacion FROM inventario_plain WHERE Descripcion = ? AND Sucursal != 'Global'
+           ORDER BY CASE Sucursal WHEN 'HI' THEN 1 WHEN 'EX' THEN 2 WHEN 'MT' THEN 3 WHEN 'SA' THEN 4 WHEN 'ADE' THEN 5 ELSE 6 END""",
         (nombre,),
     )
-    
     return jsonify([dict(r) for r in detalle_rows])
 
 
@@ -406,23 +309,21 @@ def api_detalle():
 def debug_db():
     try:
         r1 = q("SELECT COUNT(*) AS c FROM inventario_plain")
-        r2 = q("SELECT COUNT(*) AS c FROM inventario") # Tabla FTS
+        r2 = q("SELECT COUNT(*) AS c FROM inventario")
         r3 = q("SELECT name FROM sqlite_master WHERE type='table' AND name='inventario'")
         return jsonify({
             "filas_en_tabla_datos_plain": r1[0]["c"] if r1 else -1,
             "filas_en_tabla_busqueda_fts": r2[0]["c"] if r2 else -1,
             "existe_tabla_fts": bool(r3),
         })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    except Exception as e: return jsonify({"error": str(e)}), 500
 
 @app.route("/debug_sample")
 def debug_sample():
     try:
         sample = q("SELECT Codigo, Descripcion, Existencia, Clasificacion, Sucursal FROM inventario_plain LIMIT 10")
         return jsonify({"sample": [dict(r) for r in sample]})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    except Exception as e: return jsonify({"error": str(e)}), 500
 
 
 # --- ejecución ---
