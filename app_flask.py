@@ -363,6 +363,7 @@ def debug_sample():
 # WSGI / local
 # ------------------------------
 if __name__ == "__main__":
-    # Local
-    app.run(host="0.0.0.0", port=8000, debug=True)
+    # Render usa el puerto 10000
+    app.run(host="0.0.0.0", port=10000)
+
 
