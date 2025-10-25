@@ -1,343 +1,368 @@
-from flask import Flask, request, render_template_string, jsonify, abort
+# app_flask.py
+from flask import Flask, render_template_string, request, jsonify, redirect, url_for
 import sqlite3
-import html
 import unicodedata
+import urllib.parse
 
 app = Flask(__name__)
+
 DB_PATH = "inventario_el_cedro.db"
 
-# -------------------- Normalización (acentos) -------------------- #
+
+# ------------------------------
+# Utilidades de normalización
+# ------------------------------
 def _normalize(s: str) -> str:
-    if s is None:
+    """Quita acentos, pone en minúsculas y normaliza ñ/ü para comparación flexible."""
+    if not s:
         return ""
-    s = str(s)
+    s = s.lower()
     s = unicodedata.normalize("NFD", s)
-    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
-    return s.lower()
+    s = "".join(ch for ch in s if unicodedata.category(ch) != "Mn")  # sin tildes
+    s = s.replace("ñ", "n").replace("ü", "u")
+    return s
 
-def get_conn():
-    conn = sqlite3.connect(DB_PATH)
-    conn.create_function("ufn_norm", 1, _normalize)
-    return conn
 
-# -------------------- Consultas -------------------- #
-def _build_or_where_norm(tokens):
-    parts, params = [], []
-    for t in tokens:
-        like = f"%{t}%"
-        parts.append("(ufn_norm(Descripcion) LIKE ufn_norm(?) OR ufn_norm(Codigo) LIKE ufn_norm(?))")
-        params.extend([like, like])
-    return " OR ".join(parts), params
-
-def _build_or_where_simple(tokens):
-    parts, params = [], []
-    for t in tokens:
-        like = f"%{t}%"
-        parts.append("(Descripcion LIKE ? OR Codigo LIKE ?)")
-        params.extend([like, like])
-    return " OR ".join(parts), params
-
-def buscar_productos(conn, q):
+def _san_sql_expr(col: str) -> str:
     """
-    Búsqueda insensible a acentos y menos estricta (OR entre palabras).
-    Si no devuelve nada, vuelve a buscar con LIKE simple (plan B).
+    Devuelve una expresión SQL que emula 'unaccent + lower' en SQLite.
+    Convierte áéíóúü/ñ en aeiouu/n y aplica lower(col).
     """
-    tokens = [t.strip() for t in q.split() if t.strip()]
+    return (
+        f"replace(replace(replace(replace(replace("
+        f"replace(replace(lower({col}), 'á','a'),'é','e'),'í','i'),'ó','o'),'ú','u'),'ü','u'),'ñ','n')"
+    )
+
+
+# ------------------------------
+# Capa de datos
+# ------------------------------
+def buscar_productos(term: str):
+    """
+    Búsqueda tolerante:
+    - Divide la consulta en tokens por espacios.
+    - Cada token debe aparecer en AL MENOS una de las columnas (AND entre tokens).
+    - Coincidencia por subcadena con LIKE %token%.
+    - Ignora acentos/mayúsculas.
+    - Columnas: Descripcion, Codigo, Clasificacion, Sucursal.
+    """
+    term = (term or "").strip()
+    if not term:
+        return []
+
+    tokens = [_normalize(t) for t in term.split() if t.strip()]
     if not tokens:
         return []
 
-    cur = conn.cursor()
+    cols = ["Descripcion", "Codigo", "Clasificacion", "Sucursal"]
 
-    # --- 1) consulta normalizada (recomendada) ---
-    where_norm, params_norm = _build_or_where_norm(tokens)
-    sql_norm = f"""
-        SELECT Codigo, Descripcion
+    # (col LIKE ? OR col2 LIKE ? ...) por token
+    per_token_clauses = []
+    params = []
+    for tk in tokens:
+        like = f"%{tk}%"
+        group = " OR ".join([f"{_san_sql_expr(c)} LIKE ?" for c in cols])
+        per_token_clauses.append(f"({group})")
+        params.extend([like] * len(cols))
+
+    where = " AND ".join(per_token_clauses)
+
+    sql = f"""
+        SELECT Codigo, Descripcion, Existencia, Clasificacion, Sucursal
         FROM inventario
-        WHERE {where_norm}
-        GROUP BY Codigo, Descripcion
-        ORDER BY Descripcion
-        LIMIT 100;
+        WHERE {where}
+        LIMIT 50;
     """
-    rows = []
-    try:
-        cur.execute(sql_norm, params_norm)
-        rows = cur.fetchall()
-    except Exception as e:
-        print("[WARN] consulta normalizada falló:", e)
 
-    # --- 2) si no hay resultados, plan B con LIKE simple ---
-    if not rows:
-        where_simple, params_simple = _build_or_where_simple(tokens)
-        sql_simple = f"""
-            SELECT Codigo, Descripcion
-            FROM inventario
-            WHERE {where_simple}
-            GROUP BY Codigo, Descripcion
-            ORDER BY Descripcion
-            LIMIT 100;
-        """
-        try:
-            cur.execute(sql_simple, params_simple)
-            rows = cur.fetchall()
-            if rows:
-                print("[INFO] plan B (LIKE simple) devolvió", len(rows), "filas")
-        except Exception as e:
-            print("[ERROR] plan B (LIKE simple) falló:", e)
-
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute(sql, params)
+    rows = cur.fetchall()
+    conn.close()
     return rows
 
-def detalle_por_producto(conn, codigo=None, descripcion=None):
-    cur = conn.cursor()
-    if codigo:
-        cur.execute("""
-            SELECT Sucursal, Existencia, Clasificacion
-            FROM inventario
-            WHERE Codigo = ?
-            ORDER BY Sucursal;
-        """, (codigo,))
-    elif descripcion:
-        cur.execute("""
-            SELECT Sucursal, Existencia, Clasificacion
-            FROM inventario
-            WHERE ufn_norm(Descripcion) = ufn_norm(?)
-            ORDER BY Sucursal;
-        """, (descripcion,))
-    else:
-        return []
-    return cur.fetchall()
 
-# -------------------- Plantilla -------------------- #
+def obtener_detalle_por_descripcion(descripcion: str):
+    """
+    Devuelve el detalle por sucursal para una descripción. Comparación flexible
+    (sin acentos, minúsculas y normalizando ñ/ü).
+    """
+    desc_norm = _normalize(descripcion)
+    if not desc_norm:
+        return []
+
+    sql = f"""
+        SELECT Sucursal, COALESCE(Existencia, 0) AS Existencia, Clasificacion
+        FROM inventario
+        WHERE {_san_sql_expr('Descripcion')} = ?
+        ORDER BY 
+            CASE Sucursal
+                WHEN 'HI' THEN 1
+                WHEN 'EX' THEN 2
+                WHEN 'MT' THEN 3
+                WHEN 'SA' THEN 4
+                WHEN 'ADE' THEN 5
+                WHEN 'Global' THEN 6
+                ELSE 7
+            END, Sucursal;
+    """
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute(sql, (desc_norm,))
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
+
+# ------------------------------
+# Plantilla (tema azul/blanco)
+# ------------------------------
 TEMPLATE = r"""
 <!doctype html>
 <html lang="es">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta charset="utf-8">
   <title>Ferretería El Cedro • Buscador de Inventario</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- Bootstrap -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <style>
     :root{
-      --azul-800:#0f3d8a;
-      --azul-700:#1956c1;
+      --azul-800:#1e3a8a;
+      --azul-700:#1d4ed8;
       --azul-600:#2563eb;
-      --azul-100:#e9f0ff;
+      --azul-100:#e0e7ff;
       --gris-50:#f8fafc;
+      --gris-100:#f1f5f9;
+      --gris-300:#cbd5e1;
     }
-    body{background:var(--gris-50);}
-    .navbar{background:linear-gradient(90deg,var(--azul-800),var(--azul-600));}
-    .navbar-brand{font-weight:700; letter-spacing:.2px;}
-    .card{border-radius:14px; box-shadow:0 6px 18px rgba(16,24,40,.06);}
+    body{ background: var(--gris-50); }
+    .navbar{
+      background: linear-gradient(90deg, var(--azul-800), var(--azul-600));
+    }
+    .navbar .navbar-brand{ color:#fff; font-weight:600; }
+    .card{
+      border:1px solid var(--gris-300);
+      box-shadow: 0 8px 16px rgba(30,58,138,.06);
+    }
     .table thead th{
-      background:var(--azul-100)!important;
-      color:#0f172a; border-bottom:1px solid #dbeafe;
+      background: var(--azul-100);
+      color: #0f172a;
     }
-    .btn-primary{background:var(--azul-700); border-color:var(--azul-700);}
-    .btn-primary:hover{background:#144aa5; border-color:#144aa5;}
-    .result-item{padding:.6rem .75rem; border-radius:10px; border:1px solid #e6eefc; cursor:pointer; background:white;}
-    .result-item:hover{background:#f3f7ff; border-color:#d2e2ff;}
-    .muted{color:#64748b; font-size:.925rem;}
-    .badge-code{font-family:ui-monospace, monospace; background:#eef2ff; color:#1e40af;}
+    .btn-cedro{
+      background: var(--azul-700);
+      color: #fff;
+      border: none;
+    }
+    .btn-cedro:hover{ background: var(--azul-600); }
+    .pill{
+      border-radius: 9999px;
+      padding: .15rem .6rem;
+      font-size: .85rem;
+    }
+    .list-hover .list-group-item{
+      cursor:pointer;
+    }
+    .list-hover .list-group-item:hover{
+      background: #f8fafc;
+    }
   </style>
 </head>
 <body>
-  <nav class="navbar navbar-dark">
-    <div class="container">
-      <span class="navbar-brand">Ferretería El Cedro • Buscador de Inventario</span>
-    </div>
-  </nav>
 
-  <main class="container my-4">
-    <div class="card mb-4">
-      <div class="card-body">
-        <div class="d-flex justify-content-between align-items-center mb-2">
-          <h6 class="m-0"><strong>Detalle:</strong> <span id="detalle-titulo">Selecciona un producto</span></h6>
-          <button id="btn-limpiar" class="btn btn-outline-secondary btn-sm">Limpiar detalle</button>
-        </div>
-        <div class="table-responsive">
-          <table class="table table-sm align-middle">
-            <thead>
-              <tr>
-                <th class="w-25">Sucursal</th>
-                <th class="w-25">Existencia</th>
-                <th>Clasificación</th>
-              </tr>
-            </thead>
-            <tbody id="detalle-rows">
-              <tr>
-                <td colspan="3" class="text-center text-muted">Selecciona un producto para ver el detalle por sucursal</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
+<nav class="navbar navbar-expand">
+  <div class="container">
+    <span class="navbar-brand">Ferretería El Cedro • Buscador de Inventario</span>
+  </div>
+</nav>
 
-    <div class="card">
-      <div class="card-body">
-        <form method="get" class="row g-2">
-          <div class="col-md-9">
-            <input name="q" value="{{ q }}" class="form-control form-control-lg"
-                   placeholder="Buscar producto o código..." />
-            <div class="form-text">Tip: puedes buscar varios términos (ej. <code>tinaco truper</code>). Acentos opcionales.</div>
-          </div>
-          <div class="col-md-3 d-grid">
-            <button class="btn btn-primary btn-lg" type="submit">Buscar</button>
-          </div>
-        </form>
+<div class="container my-4">
 
-        {% if results is not none %}
-          {% if results %}
-            <div class="mt-3">
-              <div class="muted mb-2">Resultados (clic para ver detalle):</div>
-              <div class="row g-2">
-                {% for cod, desc in results %}
-                  <div class="col-md-6">
-                    <div class="result-item" data-codigo="{{ cod|e }}" data-descripcion="{{ desc|e }}">
-                      <div class="d-flex justify-content-between">
-                        <div class="me-2">{{ desc }}</div>
-                        <span class="badge badge-code">{{ cod }}</span>
-                      </div>
-                    </div>
-                  </div>
-                {% endfor %}
-              </div>
-            </div>
+  <!-- Detalle arriba -->
+  <div class="card mb-4">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-center">
+        <h6 class="mb-3">
+          <span class="text-muted">Detalle:</span>
+          {% if detalle_sel %}
+            <strong class="ms-1">{{ detalle_sel }}</strong>
           {% else %}
-            <div class="alert alert-warning mt-3 mb-0">Sin resultados.</div>
+            Selecciona un producto
           {% endif %}
-        {% endif %}
+        </h6>
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('index') }}">Limpiar detalle</a>
+      </div>
+
+      <div class="table-responsive">
+        <table class="table table-sm align-middle">
+          <thead>
+            <tr>
+              <th>Sucursal</th>
+              <th>Existencia</th>
+              <th>Clasificación</th>
+            </tr>
+          </thead>
+          <tbody id="detalle-body">
+          {% if detalle_rows and detalle_rows|length>0 %}
+            {% for r in detalle_rows %}
+              <tr>
+                <td>{{ r['Sucursal'] }}</td>
+                <td>{{ r['Existencia'] }}</td>
+                <td>
+                  {% if r['Clasificacion'] %}
+                    <span class="pill bg-light border">{{ r['Clasificacion'] }}</span>
+                  {% else %}
+                    <span class="text-muted">—</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          {% else %}
+            <tr>
+              <td colspan="3" class="text-center text-muted py-3">
+                Selecciona un producto para ver el detalle por sucursal
+              </td>
+            </tr>
+          {% endif %}
+          </tbody>
+        </table>
       </div>
     </div>
+  </div>
 
-    <p class="text-center text-muted mt-4 mb-0">
-      Hecho para uso interno – Inventario consolidado • Ferretería El Cedro
-    </p>
-  </main>
+  <!-- Buscador -->
+  <div class="card">
+    <div class="card-body">
+      <form method="get" id="form-buscar" class="row g-2 align-items-stretch">
+        <div class="col-lg-9 col-md-8">
+          <input type="text" class="form-control form-control-lg" name="q" id="q"
+                 placeholder="Buscar producto o código..." value="{{ q or '' }}" autocomplete="off">
+          <div class="form-text">
+            Tip: busca varios términos (ej. <code>tinaco truper</code>) • Sin acentos es OK.
+          </div>
+        </div>
+        <div class="col-lg-3 col-md-4 d-grid">
+          <button class="btn btn-cedro btn-lg" type="submit">Buscar</button>
+        </div>
 
-  <script>
-    function htmlDecode(input){const e=document.createElement('textarea');e.innerHTML=input;return e.value;}
+        <!-- Campo oculto para 'detalle' cuando haces clic en un resultado -->
+        <input type="hidden" name="detalle" id="detalle">
+      </form>
 
-    async function cargarDetallePorCodigo(codigo, descripcion){
-      try{
-        const resp=await fetch(`/detalle?codigo=${encodeURIComponent(codigo)}`);
-        if(!resp.ok)throw new Error("HTTP "+resp.status);
-        const data=await resp.json();
-        if(data.ok){
-          document.getElementById('detalle-rows').innerHTML=data.rows_html;
-          document.getElementById('detalle-titulo').textContent=descripcion;
-        }else{
-          document.getElementById('detalle-rows').innerHTML=
-            `<tr><td colspan="3" class="text-center text-danger">No hay detalle disponible</td></tr>`;
-        }
-      }catch(err){
-        document.getElementById('detalle-rows').innerHTML=
-          `<tr><td colspan="3" class="text-center text-danger">Error cargando detalle</td></tr>`;
-      }
-    }
+      <!-- Resultados -->
+      <div class="mt-3">
+      {% if results is not none %}
+        {% if results and results|length>0 %}
+          <div class="list-group list-hover">
+          {% for r in results %}
+            <a class="list-group-item list-group-item-action"
+               onclick="seleccionarDetalle('{{ r['Descripcion']|replace(\"'\",\"\\'\")|replace('\"','&quot;') }}')">
+              <div class="d-flex justify-content-between">
+                <div>
+                  <strong>{{ r['Descripcion'] }}</strong>
+                  <div class="small text-muted">
+                    Código: {{ r['Codigo'] }} • Sucursal: {{ r['Sucursal'] }} • Clasificación: {{ r['Clasificacion'] or '—' }}
+                  </div>
+                </div>
+                <div class="text-end">
+                  <span class="pill bg-light border">Exist: {{ r['Existencia'] }}</span>
+                </div>
+              </div>
+            </a>
+          {% endfor %}
+          </div>
+        {% else %}
+          <div class="alert alert-warning mb-0">Sin resultados.</div>
+        {% endif %}
+      {% endif %}
+      </div>
+    </div>
+  </div>
 
-    document.addEventListener('click',ev=>{
-      const item=ev.target.closest('.result-item');
-      if(item){
-        const codigo=item.getAttribute('data-codigo');
-        const descripcion=htmlDecode(item.getAttribute('data-descripcion')||codigo);
-        cargarDetallePorCodigo(codigo,descripcion);
-      }
-    });
+  <div class="text-center text-muted mt-4">
+    Hecho para uso interno – Inventario consolidado • Ferretería El Cedro
+  </div>
+</div>
 
-    document.getElementById('btn-limpiar').addEventListener('click',()=>{
-      document.getElementById('detalle-rows').innerHTML=
-        `<tr><td colspan="3" class="text-center text-muted">Selecciona un producto para ver el detalle por sucursal</td></tr>`;
-      document.getElementById('detalle-titulo').textContent="Selecciona un producto";
-    });
-  </script>
+<script>
+  function seleccionarDetalle(desc) {
+    // Rellena el hidden 'detalle' y re-envía el formulario para mostrar el detalle arriba
+    document.getElementById('detalle').value = desc;
+    document.getElementById('form-buscar').submit();
+  }
+</script>
+
 </body>
 </html>
 """
 
-# -------------------- Rutas -------------------- #
+
+# ------------------------------
+# Rutas
+# ------------------------------
 @app.route("/", methods=["GET"])
 def index():
     q = (request.args.get("q") or "").strip()
-    results = None
-    try:
-        conn = get_conn()
-        if q:
-            results = buscar_productos(conn, q)
-        conn.close()
-    except Exception as e:
-        results = []
-        print("Error buscando:", e)
+    detalle = (request.args.get("detalle") or "").strip()
 
-    return render_template_string(TEMPLATE, q=q, results=results)
+    results = buscar_productos(q) if q else None
 
-@app.route("/detalle")
-def api_detalle():
-    codigo = (request.args.get("codigo") or "").strip()
-    descripcion = (request.args.get("descripcion") or "").strip()
-    if not codigo and not descripcion:
-        abort(400, "Falta código o descripción")
+    detalle_rows = []
+    detalle_sel = None
+    if detalle:
+        detalle_sel = detalle
+        detalle_rows = obtener_detalle_por_descripcion(detalle)
 
-    try:
-        conn = get_conn()
-        rows = detalle_por_producto(conn, codigo=codigo, descripcion=descripcion)
-        conn.close()
-    except Exception as e:
-        return jsonify(ok=False, error=str(e)), 500
+    return render_template_string(
+        TEMPLATE,
+        q=q,
+        results=results,
+        detalle_sel=detalle_sel,
+        detalle_rows=detalle_rows,
+    )
 
-    if not rows:
-        rows_html = '<tr><td colspan="3" class="text-center text-muted">Sin detalle</td></tr>'
-    else:
-        rows_html = "".join(
-            f"<tr><td>{html.escape(str(s))}</td><td>{html.escape(str(e))}</td><td>{html.escape(str(c))}</td></tr>"
-            for s, e, c in rows
-        )
 
-    return jsonify(ok=True, rows_html=rows_html)
-
-# -------------------- Depuración -------------------- #
+# ---- Endpoints de depuración opcionales ----
 @app.route("/debug_db")
 def debug_db():
     try:
         conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
-        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='inventario';")
+        cur.execute("SELECT COUNT(*) FROM inventario;")
+        rows = cur.fetchone()[0]
+        # Probar existencia de la tabla
+        cur.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='inventario';"
+        )
         exists = cur.fetchone() is not None
-        count = None
-        if exists:
-            cur.execute("SELECT COUNT(*) FROM inventario;")
-            count = cur.fetchone()[0]
         conn.close()
-        return {"table_inventario": exists, "rows": count}
+        return jsonify(rows=rows, table_inventario=exists)
     except Exception as e:
-        return {"error": str(e)}, 500
+        return jsonify(error=str(e)), 500
+
 
 @app.route("/debug_sample")
 def debug_sample():
     try:
         conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
-        cur.execute("SELECT Descripcion, Codigo FROM inventario LIMIT 10;")
-        rows = cur.fetchall()
+        cur.execute(
+            "SELECT Codigo, Descripcion, Existencia, Clasificacion, Sucursal FROM inventario LIMIT 10;"
+        )
+        data = cur.fetchall()
         conn.close()
-        return {"sample": rows}
+        return jsonify(sample=data)
     except Exception as e:
-        return {"error": str(e)}, 500
+        return jsonify(error=str(e)), 500
 
-@app.route("/debug_search")
-def debug_search():
-    q = (request.args.get("q") or "").strip()
-    if not q:
-        return {"error":"falta q"}, 400
-    try:
-        conn = get_conn()
-        rows = buscar_productos(conn, q)
-        conn.close()
-        return {"q": q, "rows_found": len(rows), "rows": rows[:10]}
-    except Exception as e:
-        return {"error": str(e)}, 500
 
-# -------------------- Main -------------------- #
+# ------------------------------
+# WSGI / local
+# ------------------------------
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=8000, debug=False)
-
+    # Local
+    app.run(host="0.0.0.0", port=8000, debug=True)
 
