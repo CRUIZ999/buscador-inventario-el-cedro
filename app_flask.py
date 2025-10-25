@@ -23,10 +23,7 @@ def q(query, params=()):
         return []
 
 def build_fts_query(user_q: str) -> str:
-    """
-    Convierte 'tinaco 1100 truper' → 'tinaco* 1100* truper*'
-    para usar con FTS5.
-    """
+    # Esta función ya no la usaremos, pero la dejamos por si acaso
     tokens = [t.strip() for t in user_q.split() if t.strip()]
     if not tokens:
         return ""
@@ -135,24 +132,19 @@ def home():
     detalle_rows = []
 
     try:
-        # --- Búsqueda por FTS (Rápida) ---
+        # --- Búsqueda con LIKE (lenta pero segura) y DISTINCT (sin duplicados) ---
         if query:
-            fts = build_fts_query(query)
-            if fts:
-                # LA CORRECCIÓN ESTÁ AQUÍ: "SELECT DISTINCT"
-                resultados = q(
-                    """
-                    SELECT DISTINCT Codigo, Descripcion
-                    FROM inventario_plain
-                    WHERE Codigo IN (
-                        SELECT Codigo
-                        FROM inventario
-                        WHERE inventario MATCH ?
-                    )
-                    LIMIT 30
-                    """,
-                    (fts,),
-                )
+            like_query = f"%{query}%"
+            # ESTA ES LA CONSULTA QUE SABEMOS QUE FUNCIONA
+            resultados = q(
+                """
+                SELECT DISTINCT Codigo, Descripcion
+                FROM inventario_plain
+                WHERE Descripcion LIKE ? OR Codigo LIKE ?
+                LIMIT 30
+                """,
+                (like_query, like_query),
+            )
 
         # --- detalle por sucursal ---
         if detalle:
