@@ -3,8 +3,7 @@ import sqlite3
 import os
 import datetime
 
-EXCEL_PATH = r"C:\Users\Cedro_Suc_SA\Desktop\Clasificacion Anual 24-25.xlsx"
-DB_PATH = "inventario_el_cedro.db"
+EXCEL_PATH = "clasificacionanual2025.xlsx"DB_PATH = "inventario_el_cedro.db"
 
 def normalize_columns_to_text(cols):
     out = []
