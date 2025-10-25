@@ -3,7 +3,10 @@ import sqlite3
 import os
 import datetime
 
-EXCEL_PATH = "clasificacionanual2025.xlsx"
+# Lee el archivo Excel descargado por Render
+EXCEL_PATH = "clasificacionanual102025.xlsx"
+# Nombre de la base de datos que se creará
+DB_PATH = "inventario_el_cedro.db"
 
 def normalize_columns_to_text(cols):
     out = []
@@ -38,44 +41,54 @@ def main():
 
     if not os.path.exists(EXCEL_PATH):
         print(f"❌ No se encontró el archivo Excel en: {EXCEL_PATH}")
-        input("Presiona una tecla para salir...")
-        return
+        # Ya no usamos input(), salimos directamente si hay error
+        return # Termina el script
 
     print("\n[1/2] Construyendo índice (SQLite + tablas normal + FTS5)...")
 
-    xls = pd.ExcelFile(EXCEL_PATH)
-    hojas = [h for h in xls.sheet_names if h.lower().startswith("class")]
-    print(f"Hojas detectadas: {', '.join(hojas)}")
+    try:
+        xls = pd.ExcelFile(EXCEL_PATH)
+        hojas = [h for h in xls.sheet_names if h.lower().startswith("class")]
+        print(f"Hojas detectadas: {', '.join(hojas)}")
+    except Exception as e:
+        print(f"❌ Error al intentar abrir o leer las hojas del archivo Excel: {e}")
+        print("   Asegúrate de que el archivo descargado sea un Excel válido.")
+        return # Termina el script
 
     frames = []
 
     for hoja in hojas:
         print(f" - Leyendo hoja: {hoja} ...")
-        df = pd.read_excel(EXCEL_PATH, sheet_name=hoja, header=8)
-        df.columns = normalize_columns_to_text(df.columns)
+        try:
+            # Asume que los encabezados están en la fila 9 (índice 8)
+            df = pd.read_excel(EXCEL_PATH, sheet_name=hoja, header=8)
+            df.columns = normalize_columns_to_text(df.columns)
 
-        col_codigo, col_desc, col_inv, col_clas, missing = detect_columns(df)
-        if missing:
-            print(f"⚠️  En la hoja {hoja} no se detectaron columnas: {missing}")
-            print("   Columnas disponibles:", list(df.columns))
-            continue
+            col_codigo, col_desc, col_inv, col_clas, missing = detect_columns(df)
+            if missing:
+                print(f"⚠️  En la hoja {hoja} no se detectaron columnas: {missing}")
+                print("   Columnas disponibles:", list(df.columns))
+                continue # Salta a la siguiente hoja
 
-        tmp = df[[col_codigo, col_desc, col_inv, col_clas]].copy()
-        tmp.columns = ["Codigo", "Descripcion", "Existencia", "Clasificacion"]
-        # Sucursal = nombre corto de la hoja
-        suc = hoja.replace("Class", "").replace("(", "").replace(")", "").strip()
-        tmp["Sucursal"] = suc
+            tmp = df[[col_codigo, col_desc, col_inv, col_clas]].copy()
+            tmp.columns = ["Codigo", "Descripcion", "Existencia", "Clasificacion"]
+            # Sucursal = nombre corto de la hoja
+            suc = hoja.replace("Class", "").replace("(", "").replace(")", "").strip()
+            tmp["Sucursal"] = suc
 
-        # Todo como texto para evitar None
-        for c in ["Codigo", "Descripcion", "Existencia", "Clasificacion", "Sucursal"]:
-            tmp[c] = tmp[c].astype(str).fillna("").str.strip()
+            # Todo como texto para evitar None
+            for c in ["Codigo", "Descripcion", "Existencia", "Clasificacion", "Sucursal"]:
+                tmp[c] = tmp[c].astype(str).fillna("").str.strip()
 
-        frames.append(tmp)
+            frames.append(tmp)
+        except Exception as e:
+            print(f"❌ Error procesando la hoja {hoja}: {e}")
+            print("   Revisa la estructura de esta hoja en tu archivo Excel.")
+            # Continuamos con las otras hojas si es posible
 
     if not frames:
-        print("❌ No se pudo construir ningún DataFrame (revisa encabezados de fila 9).")
-        input("Presiona una tecla para salir...")
-        return
+        print("❌ No se pudo construir ningún DataFrame (revisa encabezados de fila 9 y errores anteriores).")
+        return # Termina el script
 
     data = pd.concat(frames, ignore_index=True)
     print(f"✅ Total de registros combinados: {len(data)}")
@@ -87,7 +100,7 @@ def main():
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
-    # ---- Tabla NORMAL para LIKE (siempre funciona) ----
+    # ---- Tabla NORMAL para LIKE ----
     cur.execute("DROP TABLE IF EXISTS inventario_plain;")
     cur.execute("""
         CREATE TABLE inventario_plain (
@@ -107,7 +120,7 @@ def main():
     cur.execute("CREATE INDEX IF NOT EXISTS idx_inv_clas ON inventario_plain(Clasificacion);")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_inv_suc  ON inventario_plain(Sucursal);")
 
-    # ---- (Opcional) Tabla FTS5 para búsquedas futuras ----
+    # ---- Tabla FTS5 para búsquedas futuras ----
     try:
         cur.execute("DROP TABLE IF EXISTS inventario;")
         cur.execute("""
@@ -127,7 +140,7 @@ def main():
 
     print("✅ Base de datos creada correctamente (tabla normal + FTS).")
     print("✅ Índice creado con éxito.")
-    input("Presiona una tecla para salir...")
+    # Las líneas input() han sido eliminadas para que funcione en Render
 
 if __name__ == "__main__":
     main()
