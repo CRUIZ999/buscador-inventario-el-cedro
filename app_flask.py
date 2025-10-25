@@ -40,7 +40,6 @@ TPL = """
     :root{
       --azul:#1e40af; --azul-2:#2563eb; --azul-claro:#e8f0ff;
       --gris:#475569; --bg:#f5f8ff;
-      /* CAMBIO 1: Se añaden los colores */
       --rojo: #dc2626;
       --naranja: #ea580c;
     }
@@ -60,7 +59,6 @@ TPL = """
       color: var(--azul);
     }
 
-    /* CAMBIO 2: Se añaden los estilos para las clases de color */
     .stock-d { color: var(--rojo); font-weight: 700; }
     .stock-c { color: var(--naranja); font-weight: 700; }
 
@@ -193,19 +191,17 @@ TPL = """
       let filaClasificacion = '<td><b>CLASIFICACION</b></td>';
 
       for (const suc of sucursales) {
-        const d = datos[suc]; // Datos de la sucursal actual
+        const d = datos[suc]; 
         
-        // --- CAMBIO 3: Lógica para aplicar colores ---
-        let claseColor = ''; // Clase CSS por defecto (ninguna)
+        let claseColor = ''; 
         if (d) {
           if (d.Clasificacion === 'D') {
-            claseColor = 'stock-d'; // Clase roja
+            claseColor = 'stock-d'; 
           } else if (d.Clasificacion === 'C') {
-            claseColor = 'stock-c'; // Clase naranja
+            claseColor = 'stock-c'; 
           }
         }
         
-        // Aplicamos la clase (ej. class="stock-d") a la celda de existencia
         filaExistencias += `<td class="${claseColor}">${d ? parseInt(d.Existencia) : 0}</td>`;
         filaClasificacion += `<td>${d ? d.Clasificacion : '-'}</td>`;
       }
@@ -236,13 +232,15 @@ def home():
     try:
         if query:
             like_query = f"%{query}%"
+            # --- CAMBIO AQUÍ: Se añade "CAST(Existencia AS REAL)" ---
+            # Esto forza a la base de datos a tratar la existencia como un número
             resultados = q(
                 """
                 SELECT Codigo, Descripcion
                 FROM inventario_plain
                 WHERE (Descripcion LIKE ? OR Codigo LIKE ?)
                   AND Sucursal = 'Global'
-                  AND Existencia > 0
+                  AND CAST(Existencia AS REAL) > 0
                 LIMIT 30
                 """,
                 (like_query, like_query),
