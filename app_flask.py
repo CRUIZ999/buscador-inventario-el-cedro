@@ -1,236 +1,208 @@
 from flask import Flask, request, jsonify, render_template_string
 import sqlite3
+import html
+import os  # Importar OS
 
 app = Flask(__name__)
 
-# -----------------------------
-# CONFIGURACIÓN BASE DE DATOS
-# -----------------------------
 DB_PATH = "inventario_el_cedro.db"
 
-def ejecutar_query(query, params=()):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute(query, params)
-    resultados = cursor.fetchall()
-    conn.close()
-    return resultados
 
-# -----------------------------
-# PLANTILLA PRINCIPAL HTML
-# -----------------------------
-PLANTILLA = """
-<!DOCTYPE html>
+# ------------------ utilidades DB ------------------
+def q(query, params=()):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute(query, params)
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
+
+def build_fts_query(user_q: str) -> str:
+    """
+    Convierte 'tinaco 1100 truper' → 'tinaco* 1100* truper*'
+    para usar con FTS5.
+    """
+    tokens = [t.strip() for t in user_q.split() if t.strip()]
+    if not tokens:
+        return ""
+    return " ".join(f"{t}*" for t in tokens)
+
+
+# ------------------ plantilla HTML ------------------
+TPL = """
+<!doctype html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <title>Ferretería El Cedro • Buscador de Inventario</title>
-    <style>
-        body {
-            font-family: 'Segoe UI', sans-serif;
-            background: #f5f8ff;
-            margin: 0;
-        }
-        header {
-            background: linear-gradient(90deg, #0a3d91, #2563eb);
-            color: white;
-            padding: 16px 32px;
-            font-size: 22px;
-            font-weight: bold;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-        }
-        .container {
-            max-width: 1100px;
-            margin: 40px auto;
-            background: white;
-            border-radius: 10px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-            padding: 20px 30px;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 15px;
-        }
-        th {
-            background: #e8f0ff;
-            color: #1e3a8a;
-            text-align: left;
-            padding: 10px;
-            font-weight: 600;
-        }
-        td {
-            border-bottom: 1px solid #f0f0f0;
-            padding: 10px;
-        }
-        .search {
-            display: flex;
-            margin-top: 25px;
-            gap: 10px;
-        }
-        input[type="text"] {
-            flex: 1;
-            padding: 10px 15px;
-            border: 1px solid #cbd5e1;
-            border-radius: 8px;
-            font-size: 16px;
-        }
-        button {
-            background: #1e40af;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            padding: 10px 20px;
-            cursor: pointer;
-            font-size: 16px;
-        }
-        button:hover {
-            background: #2563eb;
-        }
-        .no-result {
-            background: #fff7ed;
-            color: #92400e;
-            padding: 12px;
-            border-radius: 6px;
-            margin-top: 15px;
-        }
-        .footer {
-            text-align: center;
-            font-size: 14px;
-            color: #475569;
-            margin-top: 40px;
-        }
-    </style>
+  <meta charset="utf-8">
+  <title>Ferretería El Cedro • Buscador de Inventario</title>
+  <style>
+    :root{
+      --azul:#1e40af; --azul-2:#2563eb; --azul-claro:#e8f0ff;
+      --gris:#475569; --bg:#f5f8ff;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);font-family:Segoe UI,system-ui,Arial,sans-serif}
+    header{background:linear-gradient(90deg,var(--azul),var(--azul-2));color:#fff;padding:16px 28px;font-weight:700;font-size:20px;box-shadow:0 2px 6px rgba(0,0,0,.18)}
+    .wrap{max-width:1100px;margin:32px auto;background:#fff;border-radius:12px;padding:22px 28px;box-shadow:0 6px 14px rgba(0,0,0,.08)}
+    h3{margin:6px 0 14px 0;color:var(--azul)}
+    table{width:100%;border-collapse:collapse;margin-top:6px}
+    th{background:var(--azul-claro);color:var(--azul);text-align:left;padding:10px}
+    td{padding:10px;border-bottom:1px solid #f1f5f9}
+    .search{display:flex;gap:12px;margin-top:18px}
+    .search input{flex:1;padding:12px 14px;border:1px solid #cbd5e1;border-radius:8px;font-size:16px}
+    .btn{background:var(--azul);color:#fff;border:none;border-radius:8px;padding:12px 18px;font-size:16px;cursor:pointer}
+    .btn:hover{background:var(--azul-2)}
+    .item{padding:10px 6px;border-bottom:1px solid #eef2f7;cursor:pointer}
+    .item b{color:#0f172a}
+    .nores{background:#fff7ed;color:#92400e;padding:10px;border-radius:8px;margin-top:12px}
+    .foot{margin:36px 0 6px 0;text-align:center;color:var(--gris);font-size:14px}
+    .badge{color:#0f172a}
+  </style>
 </head>
 <body>
-    <header>Ferretería El Cedro • Buscador de Inventario</header>
+<header>Ferretería El Cedro • Buscador de Inventario</header>
 
-    <div class="container">
-        <h3>🔹 Detalle: 
-            {% if detalle %}
-                {{ detalle }}
-            {% else %}
-                Selecciona un producto
-            {% endif %}
-        </h3>
+<div class="wrap">
+  <h3>🔹 Detalle:
+    {% if detalle %}
+      {{ detalle }}
+    {% else %}
+      Selecciona un producto
+    {% endif %}
+  </h3>
 
-        <table>
-            <thead>
-                <tr>
-                    <th>Sucursal</th>
-                    <th>Existencia</th>
-                    <th>Clasificación</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% if detalle_rows %}
-                    {% for fila in detalle_rows %}
-                        <tr>
-                            <td>{{ fila[0] }}</td>
-                            <td>{{ fila[1] }}</td>
-                            <td>{{ fila[2] }}</td>
-                        </tr>
-                    {% endfor %}
-                {% else %}
-                    <tr><td colspan="3">Selecciona un producto para ver el detalle por sucursal</td></tr>
-                {% endif %}
-            </tbody>
-        </table>
+  <table>
+    <thead>
+      <tr><th>Sucursal</th><th>Existencia</th><th>Clasificación</th></tr>
+    </thead>
+    <tbody>
+      {% if detalle_rows %}
+        {% for r in detalle_rows %}
+          <tr>
+            <td>{{ r['Sucursal'] }}</td>
+            <td>{{ r['Existencia'] }}</td>
+            <td>{{ r['Clasificacion'] }}</td>
+          </tr>
+        {% endfor %}
+      {% else %}
+        <tr><td colspan="3">Selecciona un producto para ver el detalle por sucursal</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
 
-        <form method="get" class="search">
-            <input type="text" name="q" placeholder="Buscar producto o código..." value="{{ query or '' }}">
-            <button type="submit">Buscar</button>
-        </form>
+  <form method="get" class="search">
+    <input type="text" name="q" placeholder="Buscar producto o código..." value="{{ query or '' }}">
+    <button class="btn" type="submit">Buscar</button>
+  </form>
 
-        {% if resultados %}
-            <ul style="list-style:none; padding-left:0; margin-top:15px;">
-                {% for r in resultados %}
-                    <li style="padding:10px; border-bottom:1px solid #eee; cursor:pointer;"
-                        onclick="seleccionarDetalle('{{ r[1]|escape }}')">
-                        <strong>{{ r[1] }}</strong> — {{ r[0] }}
-                    </li>
-                {% endfor %}
-            </ul>
-        {% elif query %}
-            <div class="no-result">Sin resultados.</div>
-        {% endif %}
+  {% if resultados %}
+    <div style="margin-top:10px">
+      {% for r in resultados %}
+        <div class="item" onclick="sel('{{ r['Descripcion']|e }}')">
+          <b>{{ r['Descripcion'] }}</b>
+          <span class="badge">— {{ r['Codigo'] }}</span>
+        </div>
+      {% endfor %}
     </div>
+  {% elif query %}
+    <div class="nores">Sin resultados.</div>
+  {% endif %}
+</div>
 
-    <div class="footer">
-        Hecho para uso interno – Inventario consolidado • Ferretería El Cedro
-    </div>
+<div class="foot">Hecho para uso interno – Inventario consolidado • Ferretería El Cedro</div>
 
-    <script>
-        function seleccionarDetalle(nombre) {
-            window.location.href = '/?detalle=' + encodeURIComponent(nombre);
-        }
-    </script>
+<script>
+  function sel(nombre){
+    location.href='/?detalle='+encodeURIComponent(nombre);
+  }
+</script>
 </body>
 </html>
 """
 
-# -----------------------------
-# RUTA PRINCIPAL
-# -----------------------------
+
+# ------------------ rutas ------------------
 @app.route("/")
-def index():
-    query = request.args.get("q", "").strip()
-    detalle = request.args.get("detalle", "").strip()
+def home():
+    query = request.args.get("q", "", type=str).strip()
+    detalle = request.args.get("detalle", "", type=str).strip()
 
     resultados = []
     detalle_rows = []
 
+    # --- búsqueda por FTS ---
     if query:
-        like_param = f"%{query}%"
-        resultados = ejecutar_query("""
-            SELECT Codigo, Descripcion 
-            FROM inventario
-            WHERE Descripcion LIKE ? OR Codigo LIKE ?
-            LIMIT 30
-        """, (like_param, like_param))
+        fts = build_fts_query(query)
+        if fts:
+            resultados = q(
+                """
+                SELECT Codigo, Descripcion
+                FROM inventario_plain
+                WHERE Codigo IN (
+                    SELECT Codigo
+                    FROM inventario
+                    WHERE inventario MATCH ?
+                )
+                LIMIT 30
+                """,
+                (fts,),
+            )
 
+    # --- detalle por sucursal ---
     if detalle:
-        detalle_rows = ejecutar_query("""
+        detalle_rows = q(
+            """
             SELECT Sucursal, Existencia, Clasificacion
-            FROM inventario
-            WHERE Descripcion = ?
-        """, (detalle,))
+            FROM inventario_plain
+            WHERE Descripcion LIKE ?
+            """,
+            (f"%{detalle}%",),
+        )
 
-    return render_template_string(PLANTILLA, query=query, resultados=resultados, detalle=detalle, detalle_rows=detalle_rows)
+    return render_template_string(
+        TPL,
+        query=query,
+        detalle=detalle,
+        resultados=resultados,
+        detalle_rows=detalle_rows,
+    )
 
 
-# -----------------------------
-# DEBUG ENDPOINTS
-# -----------------------------
+# --- NUEVA VERSIÓN MEJORADA de endpoints de depuración ---
 @app.route("/debug_db")
 def debug_db():
     try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM inventario")
-        rows = cursor.fetchone()[0]
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='inventario'")
-        table_exists = cursor.fetchone() is not None
-        conn.close()
-        return jsonify({"rows": rows, "table_inventario": table_exists})
+        # 1. Contar filas en la TABLA DE DATOS
+        r1 = q("SELECT COUNT(*) AS c FROM inventario_plain")
+        
+        # 2. Contar filas en la TABLA DE BÚSQUEDA (FTS)
+        r2 = q("SELECT COUNT(*) AS c FROM inventario")
+
+        # 3. Comprobar que la tabla FTS existe
+        r3 = q("SELECT name FROM sqlite_master WHERE type='table' AND name='inventario'")
+
+        return jsonify({
+            "filas_en_tabla_datos_plain": r1[0]["c"] if r1 else -1,
+            "filas_en_tabla_busqueda_fts": r2[0]["c"] if r2 else -1,
+            "existe_tabla_fts": bool(r3),
+        })
     except Exception as e:
-        return jsonify({"error": str(e)})
+        # Si 'inventario' o 'inventario_plain' no existen, esto atrapará el error
+        return jsonify({"error": str(e)}), 500
+
 
 @app.route("/debug_sample")
 def debug_sample():
     try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM inventario LIMIT 10")
-        sample = cursor.fetchall()
-        conn.close()
-        return jsonify({"sample": sample})
+        sample = q("SELECT Codigo, Descripcion, Existencia, Clasificacion, Sucursal FROM inventario_plain LIMIT 10")
+        return jsonify({"sample": [dict(r) for r in sample]})
     except Exception as e:
-        return jsonify({"error": str(e)})
+        return jsonify({"error": str(e)}), 500
 
-# -----------------------------
-# RENDER / LOCAL
-# -----------------------------
+
+# --- ejecución (corregida para Render) ---
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
-
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port, debug=False)
