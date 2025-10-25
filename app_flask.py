@@ -23,7 +23,6 @@ def q(query, params=()):
         return []
 
 def build_fts_query(user_q: str) -> str:
-    # Esta función ya no la usaremos, pero la dejamos por si acaso
     tokens = [t.strip() for t in user_q.split() if t.strip()]
     if not tokens:
         return ""
@@ -65,7 +64,7 @@ TPL = """
 <header>Ferretería El Cedro • Buscador de Inventario</header>
 
 <div class="wrap">
-  <h3>🔹 Detalle:
+  <h3 id="detalle-titulo">🔹 Detalle:
     {% if detalle %}
       {{ detalle }}
     {% else %}
@@ -77,7 +76,7 @@ TPL = """
     <thead>
       <tr><th>Sucursal</th><th>Existencia</th><th>Clasificación</th></tr>
     </thead>
-    <tbody>
+    <tbody id="detalle-tbody">
       {% if detalle_rows %}
         {% for r in detalle_rows %}
           <tr>
@@ -114,8 +113,55 @@ TPL = """
 <div class="foot">Hecho para uso interno – Inventario consolidado • Ferretería El Cedro</div>
 
 <script>
-  function sel(nombre){
-    location.href='/?detalle='+encodeURIComponent(nombre);
+  async function sel(nombre) {
+    // 1. Obtener los elementos del DOM
+    const titulo = document.getElementById('detalle-titulo');
+    const tbody = document.getElementById('detalle-tbody');
+
+    // 2. Actualizar el título y mostrar estado de "cargando"
+    titulo.innerText = '🔹 Detalle: ' + nombre;
+    tbody.innerHTML = '<tr><td colspan="3">Cargando...</td></tr>';
+
+    try {
+      // 3. Llamar a la nueva API para obtener los datos
+      const response = await fetch('/api/detalle?nombre=' + encodeURIComponent(nombre));
+      if (!response.ok) {
+        throw new Error('Error de red');
+      }
+      const filas = await response.json();
+
+      // 4. Limpiar la tabla
+      tbody.innerHTML = '';
+
+      // 5. Mostrar resultados o mensaje de "sin resultados"
+      if (filas.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="3">No se encontraron detalles para este producto.</td></tr>';
+        return;
+      }
+
+      // 6. Llenar la tabla con las nuevas filas
+      for (const r of filas) {
+        const tr = document.createElement('tr');
+        
+        const tdSuc = document.createElement('td');
+        tdSuc.innerText = r.Sucursal;
+        tr.appendChild(tdSuc);
+        
+        const tdExi = document.createElement('td');
+        tdExi.innerText = r.Existencia;
+        tr.appendChild(tdExi);
+        
+        const tdCla = document.createElement('td');
+        tdCla.innerText = r.Clasificacion;
+        tr.appendChild(tdCla);
+
+        tbody.appendChild(tr);
+      }
+
+    } catch (error) {
+      console.error('Error al cargar detalle:', error);
+      tbody.innerHTML = '<tr><td colspan="3">Error al cargar los datos.</td></tr>';
+    }
   }
 </script>
 </body>
@@ -132,10 +178,9 @@ def home():
     detalle_rows = []
 
     try:
-        # --- Búsqueda con LIKE (lenta pero segura) y DISTINCT (sin duplicados) ---
+        # Búsqueda con LIKE (segura) y DISTINCT (sin duplicados)
         if query:
             like_query = f"%{query}%"
-            # ESTA ES LA CONSULTA QUE SABEMOS QUE FUNCIONA
             resultados = q(
                 """
                 SELECT DISTINCT Codigo, Descripcion
@@ -146,15 +191,15 @@ def home():
                 (like_query, like_query),
             )
 
-        # --- detalle por sucursal ---
+        # Esto solo se usa para la CARGA INICIAL de la página
         if detalle:
             detalle_rows = q(
                 """
                 SELECT Sucursal, Existencia, Clasificacion
                 FROM inventario_plain
-                WHERE Descripcion LIKE ?
+                WHERE Descripcion = ?
                 """,
-                (f"%{detalle}%",),
+                (detalle,),
             )
         
         return render_template_string(
@@ -168,7 +213,29 @@ def home():
         return f"<h1>Error Crítico en la App</h1><p>{str(e)}</p>", 500
 
 
-# --- endpoints de depuración ---
+# --- CAMBIO 4: Nueva ruta de API ---
+@app.route("/api/detalle")
+def api_detalle():
+    nombre = request.args.get("nombre", "", type=str).strip()
+    
+    if not nombre:
+        return jsonify({"error": "No se proporcionó nombre"}), 400
+
+    # Usamos la consulta exacta (el 'nombre' viene del clic)
+    detalle_rows = q(
+        """
+        SELECT Sucursal, Existencia, Clasificacion
+        FROM inventario_plain
+        WHERE Descripcion = ?
+        """,
+        (nombre,),
+    )
+    
+    # Convertimos los resultados a una lista de diccionarios para JSON
+    return jsonify([dict(r) for r in detalle_rows])
+
+
+# --- endpoints de depuración (sin cambios) ---
 @app.route("/debug_db")
 def debug_db():
     try:
@@ -192,7 +259,7 @@ def debug_sample():
         return jsonify({"error": str(e)}), 500
 
 
-# --- ejecución ---
+# --- ejecución (sin cambios) ---
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port, debug=False)
