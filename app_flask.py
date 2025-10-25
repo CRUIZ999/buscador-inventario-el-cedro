@@ -40,8 +40,10 @@ TPL = """
     :root{
       --azul:#1e40af; --azul-2:#2563eb; --azul-claro:#e8f0ff;
       --gris:#475569; --bg:#f5f8ff;
-      --rojo: #dc2626;
-      --naranja: #ea580c;
+      
+      /* --- CAMBIO 1: Colores más intensos --- */
+      --rojo: #dc2626;   /* red-600 */
+      --naranja: #f97316; /* orange-500 (más brillante) */
     }
     *{box-sizing:border-box}
     body{margin:0;background:var(--bg);font-family:Segoe UI,system-ui,Arial,sans-serif}
@@ -203,7 +205,9 @@ TPL = """
         }
         
         filaExistencias += `<td class="${claseColor}">${d ? parseInt(d.Existencia) : 0}</td>`;
-        filaClasificacion += `<td>${d ? d.Clasificacion : '-'}</td>`;
+        
+        /* --- CAMBIO 2: Aplicar la misma clase de color a la fila de Clasificación --- */
+        filaClasificacion += `<td class="${claseColor}">${d ? d.Clasificacion : '-'}</td>`;
       }
 
       tbody.innerHTML = `
@@ -232,8 +236,6 @@ def home():
     try:
         if query:
             like_query = f"%{query}%"
-            # --- CAMBIO AQUÍ: Se añade "CAST(Existencia AS REAL)" ---
-            # Esto forza a la base de datos a tratar la existencia como un número
             resultados = q(
                 """
                 SELECT Codigo, Descripcion
