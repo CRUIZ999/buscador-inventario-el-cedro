@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify, render_template_string
 import sqlite3
 import html
+import re # Necesario para el resaltado
 import os
 
 app = Flask(__name__)
@@ -23,10 +24,25 @@ def q(query, params=()):
         return []
 
 def build_fts_query(user_q: str) -> str:
+    # Prepara la consulta para FTS5
     tokens = [t.strip() for t in user_q.split() if t.strip()]
     if not tokens:
         return ""
-    return " ".join(f"{t}*" for t in tokens)
+    # Usa prefijos (*) para buscar palabras que empiecen con...
+    return " ".join(f"{re.escape(t)}*" for t in tokens)
+
+# --- CAMBIO: Función para resaltar ---
+def highlight_term(text, term):
+    """Resalta (con <mark>) todas las ocurrencias de 'term' en 'text', ignorando mayúsculas."""
+    if not term:
+        return text
+    try:
+        # Usa regex para encontrar todas las ocurrencias ignorando mayúsculas/minúsculas
+        # y las envuelve en <mark>...</mark>
+        return re.sub(f'({re.escape(term)})', r'<mark>\1</mark>', text, flags=re.IGNORECASE)
+    except re.error:
+        # Si el término de búsqueda causa un error de regex, devuelve el texto original
+        return text
 
 
 # ------------------ plantilla HTML ------------------
@@ -42,24 +58,18 @@ TPL = """
       --gris:#475569; --bg:#f5f8ff;
       --rojo: #dc2626;
       --naranja: #f97316;
+      /* --- CAMBIO: Color para resaltar --- */
+      --amarillo-resaltar: #fef08a; /* yellow-200 */
     }
     *{box-sizing:border-box}
     body{margin:0;background:var(--bg);font-family:Segoe UI,system-ui,Arial,sans-serif}
     
     header{
       background:linear-gradient(90deg,var(--azul),var(--azul-2));
-      color:#fff;
-      height: 60px;
-      padding: 0 28px;
-      display: flex;
-      align-items: center;
-      font-weight:700;
-      font-size:20px;
+      color:#fff; height: 60px; padding: 0 28px; display: flex;
+      align-items: center; font-weight:700; font-size:20px;
       box-shadow:0 2px 6px rgba(0,0,0,.18);
-      position: -webkit-sticky;
-      position: sticky;
-      top: 0;
-      z-index: 20;
+      position: -webkit-sticky; position: sticky; top: 0; z-index: 20;
     }
 
     .wrap{max-width:1100px;margin:32px auto;background:#fff;border-radius:12px;padding:22px 28px;box-shadow:0 6px 14px rgba(0,0,0,.08)}
@@ -70,9 +80,7 @@ TPL = """
     
     .tabla-detalle th, .tabla-detalle td { text-align: center; }
     .tabla-detalle th:first-child, .tabla-detalle td:first-child { 
-      text-align: left; 
-      font-weight: 700;
-      color: var(--azul);
+      text-align: left; font-weight: 700; color: var(--azul);
     }
 
     .stock-sm { color: var(--rojo); font-weight: 700; }
@@ -84,68 +92,53 @@ TPL = """
     .btn:hover{background:var(--azul-2)}
     .btn:disabled{background:var(--gris);cursor:not-allowed}
 
-    /* --- CAMBIO: Estilos para la lista de resultados --- */
-    .item{
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 12px 8px;
-      border-bottom: 1px solid #eef2f7;
-      cursor: pointer;
+    .item{ display: flex; justify-content: space-between; align-items: center;
+      padding: 12px 8px; border-bottom: 1px solid #eef2f7; cursor: pointer;
     }
-    .item-desc {
-      flex-grow: 1;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
+    .item-desc { flex-grow: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .item-desc b{color:#0f172a}
     .item-desc .badge{color:#0f172a}
     
-    .stock-badge {
-      flex-shrink: 0;
-      font-weight: 700;
-      color: var(--azul);
-      padding-left: 15px;
+    /* --- CAMBIO: Estilo para el resaltado --- */
+    .item-desc mark { 
+      background-color: var(--amarillo-resaltar); 
+      padding: 0 2px; 
+      border-radius: 3px;
+      color: #1e293b; /* slate-800 */
     }
     
-    /* Mejora Visual: Filas de Cebra */
+    .stock-badge { flex-shrink: 0; font-weight: 700; color: var(--azul); padding-left: 15px; }
     .item:nth-child(even) { background-color: #f8faff; }
-    /* Mejora Visual: Efecto Hover */
     .item:hover { background-color: var(--azul-claro); }
 
-    /* --- CAMBIO: Estilos para el checkbox de filtro --- */
-    .filter-box {
-      margin-top: 12px;
-      text-align: right;
-      color: var(--gris);
-    }
-    .filter-box input {
-      margin-right: 6px;
-      vertical-align: middle;
-    }
-    .filter-box label {
-      vertical-align: middle;
-      cursor: pointer;
-    }
+    .filter-box { margin-top: 12px; text-align: right; color: var(--gris); }
+    .filter-box input { margin-right: 6px; vertical-align: middle; }
+    .filter-box label { vertical-align: middle; cursor: pointer; }
 
     .nores{background:#fff7ed;color:#92400e;padding:10px;border-radius:8px;margin-top:12px}
     .foot{margin:36px 0 6px 0;text-align:center;color:var(--gris);font-size:14px}
     
     .sticky-details {
-      position: -webkit-sticky;
-      position: sticky;
-      top: 60px; 
-      background: #fff;
-      z-index: 10;
-      margin-top: -22px;
-      margin-left: -28px;
-      margin-right: -28px;
-      padding-top: 22px;
-      padding-left: 28px;
-      padding-right: 28px;
-      padding-bottom: 12px;
+      position: -webkit-sticky; position: sticky; top: 60px; 
+      background: #fff; z-index: 10;
+      margin-top: -22px; margin-left: -28px; margin-right: -28px;
+      padding-top: 22px; padding-left: 28px; padding-right: 28px; padding-bottom: 12px;
       box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+    }
+    
+    /* --- CAMBIO: Estilos para el Spinner de Carga --- */
+    .spinner {
+      border: 4px solid rgba(0, 0, 0, 0.1);
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      border-left-color: var(--azul);
+      animation: spin 1s ease infinite;
+      margin: 10px auto; /* Centrar el spinner */
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
     }
   </style>
 </head>
@@ -201,7 +194,7 @@ TPL = """
       {% for r in resultados %}
         <div class="item" onclick="sel('{{ r['Descripcion']|e }}')">
           <div class="item-desc">
-            <b>{{ r['Descripcion'] }}</b>
+            <b>{{ r['HighlightedDesc']|safe }}</b> 
             <span class="badge">— {{ r['Codigo'] }}</span>
           </div>
           <span class="stock-badge">Stock: {{ r['Existencia'] | int }}</span>
@@ -221,14 +214,13 @@ TPL = """
     const tbody = document.getElementById('detalle-tbody');
 
     titulo.innerText = '🔹 Detalle: ' + nombre;
+    
+    // --- CAMBIO: Mostrar spinner en lugar de texto ---
     tbody.innerHTML = `
         <tr>
-            <td>EXISTENCIAS</td>
-            <td colspan="5">Cargando...</td>
-        </tr>
-        <tr>
-            <td>CLASIFICACION</td>
-            <td colspan="5">-</td>
+            <td colspan="6"> 
+              <div class="spinner"></div> 
+            </td>
         </tr>`;
 
     try {
@@ -301,13 +293,11 @@ TPL = """
     }
   }
 
-  /* --- CAMBIO: Script para el estado del botón "Buscar" --- */
   const searchForm = document.getElementById('search-form');
   const searchButton = document.getElementById('search-button');
   
   if (searchForm) {
     searchForm.addEventListener('submit', function() {
-      // Solo deshabilita si hay texto en la búsqueda
       if (document.querySelector('input[name="q"]').value) {
         searchButton.disabled = true;
         searchButton.innerText = 'Buscando...';
@@ -324,35 +314,51 @@ TPL = """
 @app.route("/")
 def home():
     query = request.args.get("q", "", type=str).strip()
-    
-    # --- CAMBIO: Leer el estado del checkbox ---
-    # Si no se envía (desmarcado), 'filtro_stock' será None
     filtro_stock = request.args.get("filtro_stock")
-    
     resultados = []
     
     try:
         if query:
-            like_query = f"%{query}%"
-            
-            # --- CAMBIO: Construir la consulta SQL dinámicamente ---
-            # 1. Obtenemos C,D y Existencia para la lista
-            sql = """
-                SELECT Codigo, Descripcion, Existencia
-                FROM inventario_plain
-                WHERE (Descripcion LIKE ? OR Codigo LIKE ?)
-                  AND Sucursal = 'Global'
-            """
-            
-            # 2. Añadimos el filtro de stock SOLO si el checkbox está marcado
-            if filtro_stock == "on":
-                sql += " AND CAST(Existencia AS REAL) > 0"
+            fts_query = build_fts_query(query)
+            if fts_query:
+                # --- CAMBIO: Usar FTS para velocidad ---
+                # 1. Obtenemos Codigos que coinciden con la búsqueda FTS
+                # 2. Usamos esos códigos para obtener los detalles Y el stock Global
+                # 3. Aplicamos el filtro de stock si está activado
+                
+                # Parámetros para la consulta SQL
+                params = [fts_query]
+                
+                sql = """
+                    SELECT DISTINCT p.Codigo, p.Descripcion, p.Existencia
+                    FROM inventario_plain p
+                    WHERE p.Sucursal = 'Global'
+                      AND p.Codigo IN (
+                          SELECT Codigo 
+                          FROM inventario 
+                          WHERE inventario MATCH ? 
+                          LIMIT 100 -- Limitar resultados intermedios de FTS
+                      )
+                """
+                
+                # Añadir filtro de stock si el checkbox está activo
+                if filtro_stock == "on":
+                    sql += " AND CAST(p.Existencia AS REAL) > 0"
+                    # No necesitamos añadir 'on' a params porque ya está en la condición SQL
+                
+                sql += " LIMIT 30" # Limitar resultados finales
+                
+                resultados_raw = q(sql, tuple(params)) # Ejecutar la consulta
 
-            sql += " LIMIT 30"
-            
-            resultados = q(sql, (like_query, like_query))
-        
-        # 3. Pasamos el estado del checkbox de vuelta a la plantilla
+                # --- CAMBIO: Aplicar resaltado ---
+                resultados = []
+                for r in resultados_raw:
+                    # Convertir fila a diccionario mutable
+                    res_dict = dict(r) 
+                    # Crear nueva clave con descripción resaltada
+                    res_dict['HighlightedDesc'] = highlight_term(res_dict['Descripcion'], query)
+                    resultados.append(res_dict)
+
         return render_template_string(
             TPL,
             query=query,
@@ -362,6 +368,7 @@ def home():
             filtro_stock_checked=(filtro_stock == "on")
         )
     except Exception as e:
+        print(f"Error en la ruta home: {e}") # Log del error
         return f"<h1>Error Crítico en la App</h1><p>{str(e)}</p>", 500
 
 
@@ -399,7 +406,7 @@ def api_detalle():
 def debug_db():
     try:
         r1 = q("SELECT COUNT(*) AS c FROM inventario_plain")
-        r2 = q("SELECT COUNT(*) AS c FROM inventario")
+        r2 = q("SELECT COUNT(*) AS c FROM inventario") # Tabla FTS
         r3 = q("SELECT name FROM sqlite_master WHERE type='table' AND name='inventario'")
         return jsonify({
             "filas_en_tabla_datos_plain": r1[0]["c"] if r1 else -1,
