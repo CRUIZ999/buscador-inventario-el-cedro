@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify, render_template_string
 import sqlite3
 import html
-import os  # Importar OS
+import os
 
 app = Flask(__name__)
 
@@ -20,10 +20,6 @@ def q(query, params=()):
 
 
 def build_fts_query(user_q: str) -> str:
-    """
-    Convierte 'tinaco 1100 truper' → 'tinaco* 1100* truper*'
-    para usar con FTS5.
-    """
     tokens = [t.strip() for t in user_q.split() if t.strip()]
     if not tokens:
         return ""
@@ -36,7 +32,7 @@ TPL = """
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <title>Ferretería El Cedro • Buscador de Inventario</title>
+  <title>TEST v5 • Ferretería El Cedro • Buscador de Inventario</title>
   <style>
     :root{
       --azul:#1e40af; --azul-2:#2563eb; --azul-claro:#e8f0ff;
@@ -63,7 +59,6 @@ TPL = """
 </head>
 <body>
 <header>Ferretería El Cedro • Buscador de Inventario</header>
-
 <div class="wrap">
   <h3>🔹 Detalle:
     {% if detalle %}
@@ -72,7 +67,6 @@ TPL = """
       Selecciona un producto
     {% endif %}
   </h3>
-
   <table>
     <thead>
       <tr><th>Sucursal</th><th>Existencia</th><th>Clasificación</th></tr>
@@ -91,12 +85,10 @@ TPL = """
       {% endif %}
     </tbody>
   </table>
-
   <form method="get" class="search">
     <input type="text" name="q" placeholder="Buscar producto o código..." value="{{ query or '' }}">
     <button class="btn" type="submit">Buscar</button>
   </form>
-
   {% if resultados %}
     <div style="margin-top:10px">
       {% for r in resultados %}
@@ -110,9 +102,7 @@ TPL = """
     <div class="nores">Sin resultados.</div>
   {% endif %}
 </div>
-
 <div class="foot">Hecho para uso interno – Inventario consolidado • Ferretería El Cedro</div>
-
 <script>
   function sel(nombre){
     location.href='/?detalle='+encodeURIComponent(nombre);
@@ -128,48 +118,22 @@ TPL = """
 def home():
     query = request.args.get("q", "", type=str).strip()
     detalle = request.args.get("detalle", "", type=str).strip()
-
     resultados = []
     detalle_rows = []
 
-    # --- búsqueda por FTS ---
     if query:
-        fts = build_fts_query(query)
-        if fts:
-            resultados = q(
-                """
-                SELECT Codigo, Descripcion
-                FROM inventario_plain
-                WHERE Codigo IN (
-                    SELECT Codigo
-                    FROM inventario
-                    WHERE Descripcion MATCH ? 
-                )
-                LIMIT 30
-                """,
-                (fts,),
-            )
-
-    # --- detalle por sucursal ---
-    if detalle:
-        detalle_rows = q(
+        # Seguimos usando la prueba con LIKE, que es más simple
+        like_query = f"%{query}%"
+        resultados = q(
             """
-            SELECT Sucursal, Existencia, Clasificacion
+            SELECT Codigo, Descripcion
             FROM inventario_plain
-            WHERE Descripcion LIKE ?
+            WHERE Descripcion LIKE ? OR Codigo LIKE ?
+            LIMIT 30
             """,
-            (f"%{detalle}%",),
+            (like_query, like_query),
         )
 
-    return render_template_string(
-        TPL,
-        query=query,
-        detalle=detalle,
-        resultados=resultados,
-        detalle_rows=detalle_rows,
-    )
-
-    # --- detalle por sucursal ---
     if detalle:
         detalle_rows = q(
             """
@@ -189,26 +153,35 @@ def home():
     )
 
 
-# --- NUEVA VERSIÓN MEJORADA de endpoints de depuración ---
+# --- endpoints de depuración ---
 @app.route("/debug_db")
 def debug_db():
     try:
-        # 1. Contar filas en la TABLA DE DATOS
         r1 = q("SELECT COUNT(*) AS c FROM inventario_plain")
-        
-        # 2. Contar filas en la TABLA DE BÚSQUEDA (FTS)
         r2 = q("SELECT COUNT(*) AS c FROM inventario")
-
-        # 3. Comprobar que la tabla FTS existe
         r3 = q("SELECT name FROM sqlite_master WHERE type='table' AND name='inventario'")
-
         return jsonify({
             "filas_en_tabla_datos_plain": r1[0]["c"] if r1 else -1,
             "filas_en_tabla_busqueda_fts": r2[0]["c"] if r2 else -1,
             "existe_tabla_fts": bool(r3),
         })
     except Exception as e:
-        # Si 'inventario' o 'inventario_plain' no existen, esto atrapará el error
+        return jsonify({"error": str(e)}), 500
+
+# --- NUEVA RUTA DE DEBUG ESPECIAL ---
+@app.route("/debug_tinaco")
+def debug_tinaco():
+    try:
+        like_query = "%tinaco%"
+        # Prueba la consulta LIKE directamente en la tabla de datos
+        r = q("SELECT Codigo, Descripcion FROM inventario_plain WHERE Descripcion LIKE ? LIMIT 10", (like_query,))
+        
+        return jsonify({
+            "buscando_con_like": like_query,
+            "resultados_encontrados": len(r),
+            "primeros_10_ejemplos": [dict(row) for row in r]
+        })
+    except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
@@ -225,3 +198,5 @@ def debug_sample():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port, debug=False)
+
+# Probando despliegue
