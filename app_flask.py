@@ -190,20 +190,24 @@ def home():
     detalle_rows = []
 
     try:
-        # Búsqueda con LIKE (segura) y DISTINCT (sin duplicados)
         if query:
             like_query = f"%{query}%"
+            # --- CAMBIO AQUÍ ---
+            # Se añade "AND Sucursal = 'Global' AND Existencia > 0"
+            # Esto filtra la lista de búsqueda para mostrar solo productos
+            # que tengan existencia global > 0.
             resultados = q(
                 """
-                SELECT DISTINCT Codigo, Descripcion
+                SELECT Codigo, Descripcion
                 FROM inventario_plain
-                WHERE Descripcion LIKE ? OR Codigo LIKE ?
+                WHERE (Descripcion LIKE ? OR Codigo LIKE ?)
+                  AND Sucursal = 'Global'
+                  AND Existencia > 0
                 LIMIT 30
                 """,
                 (like_query, like_query),
             )
 
-        # Esto solo se usa para la CARGA INICIAL de la página
         if detalle:
             detalle_rows = q(
                 """
