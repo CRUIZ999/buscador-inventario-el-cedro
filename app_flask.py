@@ -49,6 +49,15 @@ TPL = """
     table{width:100%;border-collapse:collapse;margin-top:6px}
     th{background:var(--azul-claro);color:var(--azul);text-align:left;padding:10px}
     td{padding:10px;border-bottom:1px solid #f1f5f9}
+    
+    /* CAMBIO 1: Estilos para la nueva tabla horizontal */
+    .tabla-detalle th, .tabla-detalle td { text-align: center; }
+    .tabla-detalle th:first-child, .tabla-detalle td:first-child { 
+      text-align: left; 
+      font-weight: 700;
+      color: var(--azul);
+    }
+
     .search{display:flex;gap:12px;margin-top:18px}
     .search input{flex:1;padding:12px 14px;border:1px solid #cbd5e1;border-radius:8px;font-size:16px}
     .btn{background:var(--azul);color:#fff;border:none;border-radius:8px;padding:12px 18px;font-size:16px;cursor:pointer}
@@ -82,30 +91,28 @@ TPL = """
 <div class="wrap">
   
   <div class="sticky-details">
-    <h3 id="detalle-titulo">🔹 Detalle:
-      {% if detalle %}
-        {{ detalle }}
-      {% else %}
-        Selecciona un producto
-      {% endif %}
-    </h3>
+    <h3 id="detalle-titulo">🔹 Detalle: Selecciona un producto</h3>
 
-    <table>
+    <table class="tabla-detalle">
       <thead>
-        <tr><th>Sucursal</th><th>Existencia</th><th>Clasificación</th></tr>
+        <tr id="detalle-thead">
+          <th>SUCURSALES</th>
+          <th>HI</th>
+          <th>EX</th>
+          <th>MT</th>
+          <th>SA</th>
+          <th>ADE</th>
+        </tr>
       </thead>
       <tbody id="detalle-tbody">
-        {% if detalle_rows %}
-          {% for r in detalle_rows %}
-            <tr>
-              <td>{{ r['Sucursal'] }}</td>
-              <td>{{ r['Existencia'] }}</td>
-              <td>{{ r['Clasificacion'] }}</td>
-            </tr>
-          {% endfor %}
-        {% else %}
-          <tr><td colspan="3">Selecciona un producto para ver el detalle por sucursal</td></tr>
-        {% endif %}
+        <tr>
+            <td>EXISTENCIAS</td>
+            <td colspan="5">Selecciona un producto</td>
+        </tr>
+        <tr>
+            <td>CLASIFICACION</td>
+            <td colspan="5">-</td>
+        </tr>
       </tbody>
     </table>
     
@@ -136,43 +143,66 @@ TPL = """
     const tbody = document.getElementById('detalle-tbody');
 
     titulo.innerText = '🔹 Detalle: ' + nombre;
-    tbody.innerHTML = '<tr><td colspan="3">Cargando...</td></tr>';
+    tbody.innerHTML = `
+        <tr>
+            <td>EXISTENCIAS</td>
+            <td colspan="5">Cargando...</td>
+        </tr>
+        <tr>
+            <td>CLASIFICACION</td>
+            <td colspan="5">-</td>
+        </tr>`;
 
     try {
       const response = await fetch('/api/detalle?nombre=' + encodeURIComponent(nombre));
       if (!response.ok) {
         throw new Error('Error de red');
       }
-      const filas = await response.json();
-
-      tbody.innerHTML = '';
+      const filas = await response.json(); // Esto trae las 5 filas de la DB
 
       if (filas.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="3">No se encontraron detalles para este producto.</td></tr>';
+        tbody.innerHTML = `
+            <tr>
+                <td>EXISTENCIAS</td>
+                <td colspan="5">No se encontraron detalles</td>
+            </tr>
+            <tr>
+                <td>CLASIFICACION</td>
+                <td colspan="5">-</td>
+            </tr>`;
         return;
       }
 
+      // Convertimos las filas en un objeto para fácil acceso
+      const datos = {};
       for (const r of filas) {
-        const tr = document.createElement('tr');
-        
-        const tdSuc = document.createElement('td');
-        tdSuc.innerText = r.Sucursal;
-        tr.appendChild(tdSuc);
-        
-        const tdExi = document.createElement('td');
-        tdExi.innerText = r.Existencia;
-        tr.appendChild(tdExi);
-        
-        const tdCla = document.createElement('td');
-        tdCla.innerText = r.Clasificacion;
-        tr.appendChild(tdCla);
-
-        tbody.appendChild(tr);
+        datos[r.Sucursal] = r;
       }
+      
+      // Orden de las sucursales
+      const sucursales = ['HI', 'EX', 'MT', 'SA', 'ADE'];
+
+      // Construir la fila de Existencias
+      let filaExistencias = '<td><b>EXISTENCIAS</b></td>';
+      for (const suc of sucursales) {
+        filaExistencias += `<td>${datos[suc] ? datos[suc].Existencia : 0}</td>`;
+      }
+
+      // Construir la fila de Clasificación
+      let filaClasificacion = '<td><b>CLASIFICACION</b></td>';
+      for (const suc of sucursales) {
+        filaClasificacion += `<td>${datos[suc] ? datos[suc].Clasificacion : '-'}</td>`;
+      }
+
+      // Inyectar el HTML final en la tabla
+      tbody.innerHTML = `
+        <tr>${filaExistencias}</tr>
+        <tr>${filaClasificacion}</tr>
+      `;
 
     } catch (error) {
       console.error('Error al cargar detalle:', error);
-      tbody.innerHTML = '<tr><td colspan="3">Error al cargar los datos.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6">Error al cargar los datos.</td></tr>';
     }
   }
 </script>
@@ -185,10 +215,11 @@ TPL = """
 @app.route("/")
 def home():
     query = request.args.get("q", "", type=str).strip()
-    detalle = request.args.get("detalle", "", type=str).strip()
+    # CAMBIO 4: Ya no cargamos los detalles en la ruta principal
+    # La tabla ahora siempre empieza vacía y se llena con JS
+    
     resultados = []
-    detalle_rows = []
-
+    
     try:
         if query:
             like_query = f"%{query}%"
@@ -203,33 +234,14 @@ def home():
                 """,
                 (like_query, like_query),
             )
-
-        if detalle:
-            # --- CAMBIO 1: Se añade ORDEN y se quita 'Global' ---
-            detalle_rows = q(
-                """
-                SELECT Sucursal, Existencia, Clasificacion
-                FROM inventario_plain
-                WHERE Descripcion = ? AND Sucursal != 'Global'
-                ORDER BY
-                  CASE Sucursal
-                    WHEN 'HI' THEN 1
-                    WHEN 'EX' THEN 2
-                    WHEN 'MT' THEN 3
-                    WHEN 'SA' THEN 4
-                    WHEN 'ADE' THEN 5
-                    ELSE 6
-                  END
-                """,
-                (detalle,),
-            )
         
+        # Pasamos valores vacíos a la plantilla, JS se encargará
         return render_template_string(
             TPL,
             query=query,
-            detalle=detalle,
+            detalle="",
             resultados=resultados,
-            detalle_rows=detalle_rows,
+            detalle_rows=[],
         )
     except Exception as e:
         return f"<h1>Error Crítico en la App</h1><p>{str(e)}</p>", 500
@@ -243,7 +255,7 @@ def api_detalle():
     if not nombre:
         return jsonify({"error": "No se proporcionó nombre"}), 400
 
-    # --- CAMBIO 2: Se añade ORDEN y se quita 'Global' ---
+    # Mantenemos la consulta que ordena y filtra
     detalle_rows = q(
         """
         SELECT Sucursal, Existencia, Clasificacion
