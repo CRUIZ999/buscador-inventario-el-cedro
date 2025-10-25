@@ -46,25 +46,20 @@ TPL = """
     *{box-sizing:border-box}
     body{margin:0;background:var(--bg);font-family:Segoe UI,system-ui,Arial,sans-serif}
     
-    /* --- CAMBIO 1: Hacer el header 'sticky' --- */
     header{
       background:linear-gradient(90deg,var(--azul),var(--azul-2));
       color:#fff;
-      /* Se quita padding vertical y se añade altura fija */
       height: 60px;
       padding: 0 28px;
       display: flex;
       align-items: center;
-      /* Fin de cambio de altura */
       font-weight:700;
       font-size:20px;
       box-shadow:0 2px 6px rgba(0,0,0,.18);
-      
-      /* Propiedades 'sticky' */
       position: -webkit-sticky;
       position: sticky;
       top: 0;
-      z-index: 20; /* z-index alto para estar encima de todo */
+      z-index: 20;
     }
 
     .wrap{max-width:1100px;margin:32px auto;background:#fff;border-radius:12px;padding:22px 28px;box-shadow:0 6px 14px rgba(0,0,0,.08)}
@@ -87,19 +82,62 @@ TPL = """
     .search input{flex:1;padding:12px 14px;border:1px solid #cbd5e1;border-radius:8px;font-size:16px}
     .btn{background:var(--azul);color:#fff;border:none;border-radius:8px;padding:12px 18px;font-size:16px;cursor:pointer}
     .btn:hover{background:var(--azul-2)}
-    .item{padding:10px 6px;border-bottom:1px solid #eef2f7;cursor:pointer}
-    .item b{color:#0f172a}
+    .btn:disabled{background:var(--gris);cursor:not-allowed}
+
+    /* --- CAMBIO: Estilos para la lista de resultados --- */
+    .item{
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 8px;
+      border-bottom: 1px solid #eef2f7;
+      cursor: pointer;
+    }
+    .item-desc {
+      flex-grow: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .item-desc b{color:#0f172a}
+    .item-desc .badge{color:#0f172a}
+    
+    .stock-badge {
+      flex-shrink: 0;
+      font-weight: 700;
+      color: var(--azul);
+      padding-left: 15px;
+    }
+    
+    /* Mejora Visual: Filas de Cebra */
+    .item:nth-child(even) { background-color: #f8faff; }
+    /* Mejora Visual: Efecto Hover */
+    .item:hover { background-color: var(--azul-claro); }
+
+    /* --- CAMBIO: Estilos para el checkbox de filtro --- */
+    .filter-box {
+      margin-top: 12px;
+      text-align: right;
+      color: var(--gris);
+    }
+    .filter-box input {
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+    .filter-box label {
+      vertical-align: middle;
+      cursor: pointer;
+    }
+
     .nores{background:#fff7ed;color:#92400e;padding:10px;border-radius:8px;margin-top:12px}
     .foot{margin:36px 0 6px 0;text-align:center;color:var(--gris);font-size:14px}
-    .badge{color:#0f172a}
     
     .sticky-details {
       position: -webkit-sticky;
       position: sticky;
-      /* --- CAMBIO 2: Bajar el 'top' para que quepa el header --- */
-      top: 60px; /* Coincide con la altura del header */
+      top: 60px; 
       background: #fff;
-      z-index: 10; /* z-index menor que el header */
+      z-index: 10;
       margin-top: -22px;
       margin-left: -28px;
       margin-right: -28px;
@@ -142,10 +180,18 @@ TPL = """
       </tbody>
     </table>
     
-    <form method="get" class="search">
+    <form method="get" class="search" id="search-form">
       <input type="text" name="q" placeholder="Buscar producto o código..." value="{{ query or '' }}">
-      <button class="btn" type="submit">Buscar</button>
+      <button class="btn" type="submit" id="search-button">Buscar</button>
     </form>
+    
+    <div class="filter-box">
+      <input type="checkbox" name="filtro_stock" value="on" id="filtro_stock"
+             form="search-form"
+             onchange="this.form.submit()"
+             {% if filtro_stock_checked %}checked{% endif %}>
+      <label for="filtro_stock">Mostrar solo con existencia</label>
+    </div>
     
   </div> 
 
@@ -154,8 +200,11 @@ TPL = """
     <div style="margin-top:10px">
       {% for r in resultados %}
         <div class="item" onclick="sel('{{ r['Descripcion']|e }}')">
-          <b>{{ r['Descripcion'] }}</b>
-          <span class="badge">— {{ r['Codigo'] }}</span>
+          <div class="item-desc">
+            <b>{{ r['Descripcion'] }}</b>
+            <span class="badge">— {{ r['Codigo'] }}</span>
+          </div>
+          <span class="stock-badge">Stock: {{ r['Existencia'] | int }}</span>
         </div>
       {% endfor %}
     </div>
@@ -227,9 +276,9 @@ TPL = """
           }
           
           if (clasificacionTexto === 'C') {
-            claseColor = 'stock-c'; // Naranja
+            claseColor = 'stock-c';
           } else if (clasificacionTexto === 'Sin Mov' && existenciaNum > 0) {
-            claseColor = 'stock-sm'; // Rojo
+            claseColor = 'stock-sm';
           }
           
           if (clasificacionTexto === 'Sin Mov') {
@@ -251,6 +300,20 @@ TPL = """
       tbody.innerHTML = '<tr><td colspan="6">Error al cargar los datos.</td></tr>';
     }
   }
+
+  /* --- CAMBIO: Script para el estado del botón "Buscar" --- */
+  const searchForm = document.getElementById('search-form');
+  const searchButton = document.getElementById('search-button');
+  
+  if (searchForm) {
+    searchForm.addEventListener('submit', function() {
+      // Solo deshabilita si hay texto en la búsqueda
+      if (document.querySelector('input[name="q"]').value) {
+        searchButton.disabled = true;
+        searchButton.innerText = 'Buscando...';
+      }
+    });
+  }
 </script>
 </body>
 </html>
@@ -262,29 +325,41 @@ TPL = """
 def home():
     query = request.args.get("q", "", type=str).strip()
     
+    # --- CAMBIO: Leer el estado del checkbox ---
+    # Si no se envía (desmarcado), 'filtro_stock' será None
+    filtro_stock = request.args.get("filtro_stock")
+    
     resultados = []
     
     try:
         if query:
             like_query = f"%{query}%"
-            resultados = q(
-                """
-                SELECT Codigo, Descripcion
+            
+            # --- CAMBIO: Construir la consulta SQL dinámicamente ---
+            # 1. Obtenemos C,D y Existencia para la lista
+            sql = """
+                SELECT Codigo, Descripcion, Existencia
                 FROM inventario_plain
                 WHERE (Descripcion LIKE ? OR Codigo LIKE ?)
                   AND Sucursal = 'Global'
-                  AND CAST(Existencia AS REAL) > 0
-                LIMIT 30
-                """,
-                (like_query, like_query),
-            )
+            """
+            
+            # 2. Añadimos el filtro de stock SOLO si el checkbox está marcado
+            if filtro_stock == "on":
+                sql += " AND CAST(Existencia AS REAL) > 0"
+
+            sql += " LIMIT 30"
+            
+            resultados = q(sql, (like_query, like_query))
         
+        # 3. Pasamos el estado del checkbox de vuelta a la plantilla
         return render_template_string(
             TPL,
             query=query,
             detalle="",
             resultados=resultados,
             detalle_rows=[],
+            filtro_stock_checked=(filtro_stock == "on")
         )
     except Exception as e:
         return f"<h1>Error Crítico en la App</h1><p>{str(e)}</p>", 500
