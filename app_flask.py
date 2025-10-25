@@ -192,10 +192,6 @@ def home():
     try:
         if query:
             like_query = f"%{query}%"
-            # --- CAMBIO AQUÍ ---
-            # Se añade "AND Sucursal = 'Global' AND Existencia > 0"
-            # Esto filtra la lista de búsqueda para mostrar solo productos
-            # que tengan existencia global > 0.
             resultados = q(
                 """
                 SELECT Codigo, Descripcion
@@ -209,11 +205,21 @@ def home():
             )
 
         if detalle:
+            # --- CAMBIO 1: Se añade ORDEN y se quita 'Global' ---
             detalle_rows = q(
                 """
                 SELECT Sucursal, Existencia, Clasificacion
                 FROM inventario_plain
-                WHERE Descripcion = ?
+                WHERE Descripcion = ? AND Sucursal != 'Global'
+                ORDER BY
+                  CASE Sucursal
+                    WHEN 'HI' THEN 1
+                    WHEN 'EX' THEN 2
+                    WHEN 'MT' THEN 3
+                    WHEN 'SA' THEN 4
+                    WHEN 'ADE' THEN 5
+                    ELSE 6
+                  END
                 """,
                 (detalle,),
             )
@@ -237,11 +243,21 @@ def api_detalle():
     if not nombre:
         return jsonify({"error": "No se proporcionó nombre"}), 400
 
+    # --- CAMBIO 2: Se añade ORDEN y se quita 'Global' ---
     detalle_rows = q(
         """
         SELECT Sucursal, Existencia, Clasificacion
         FROM inventario_plain
-        WHERE Descripcion = ?
+        WHERE Descripcion = ? AND Sucursal != 'Global'
+        ORDER BY
+          CASE Sucursal
+            WHEN 'HI' THEN 1
+            WHEN 'EX' THEN 2
+            WHEN 'MT' THEN 3
+            WHEN 'SA' THEN 4
+            WHEN 'ADE' THEN 5
+            ELSE 6
+          END
         """,
         (nombre,),
     )
