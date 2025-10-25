@@ -10,29 +10,26 @@ DB_PATH = "inventario_el_cedro.db"
 
 # ------------------ utilidades DB ------------------
 def q(query, params=()):
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cur = conn.cursor()
-    cur.execute(query, params)
-    rows = cur.fetchall()
-    conn.close()
-    return rows
+    # Esta función ahora maneja errores si la DB no existe
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute(query, params)
+        rows = cur.fetchall()
+        conn.close()
+        return rows
+    except Exception as e:
+        print(f"Error en la base de datos: {e}")
+        return []
 
-
-def build_fts_query(user_q: str) -> str:
-    tokens = [t.strip() for t in user_q.split() if t.strip()]
-    if not tokens:
-        return ""
-    return " ".join(f"{t}*" for t in tokens)
-
-
-# ------------------ plantilla HTML ------------------
+# ------------------ plantilla HTML (Sin cambios) ------------------
 TPL = """
 <!doctype html>
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <title>TEST v5 • Ferretería El Cedro • Buscador de Inventario</title>
+  <title>TEST v6 • Ferretería El Cedro • Buscador de Inventario</title>
   <style>
     :root{
       --azul:#1e40af; --azul-2:#2563eb; --azul-claro:#e8f0ff;
@@ -116,44 +113,51 @@ TPL = """
 # ------------------ rutas ------------------
 @app.route("/")
 def home():
+    # --- PRUEBA V6: Esta ruta ahora usa la búsqueda LIKE ---
+    # La búsqueda FTS original está comentada
+    
     query = request.args.get("q", "", type=str).strip()
     detalle = request.args.get("detalle", "", type=str).strip()
     resultados = []
     detalle_rows = []
 
-    if query:
-        # Seguimos usando la prueba con LIKE, que es más simple
-        like_query = f"%{query}%"
-        resultados = q(
-            """
-            SELECT Codigo, Descripcion
-            FROM inventario_plain
-            WHERE Descripcion LIKE ? OR Codigo LIKE ?
-            LIMIT 30
-            """,
-            (like_query, like_query),
+    try:
+        if query:
+            like_query = f"%{query}%"
+            # Usamos la búsqueda simple LIKE que probamos antes
+            resultados = q(
+                """
+                SELECT Codigo, Descripcion
+                FROM inventario_plain
+                WHERE Descripcion LIKE ? OR Codigo LIKE ?
+                LIMIT 30
+                """,
+                (like_query, like_query),
+            )
+
+        if detalle:
+            detalle_rows = q(
+                """
+                SELECT Sucursal, Existencia, Clasificacion
+                FROM inventario_plain
+                WHERE Descripcion LIKE ?
+                """,
+                (f"%{detalle}%",),
+            )
+        
+        return render_template_string(
+            TPL,
+            query=query,
+            detalle=detalle,
+            resultados=resultados,
+            detalle_rows=detalle_rows,
         )
-
-    if detalle:
-        detalle_rows = q(
-            """
-            SELECT Sucursal, Existencia, Clasificacion
-            FROM inventario_plain
-            WHERE Descripcion LIKE ?
-            """,
-            (f"%{detalle}%",),
-        )
-
-    return render_template_string(
-        TPL,
-        query=query,
-        detalle=detalle,
-        resultados=resultados,
-        detalle_rows=detalle_rows,
-    )
+    except Exception as e:
+        # Si algo falla (ej. TPL no definido), esto lo atrapará
+        return f"<h1>Error Crítico en la App</h1><p>{str(e)}</p>", 500
 
 
-# --- endpoints de depuración ---
+# --- endpoints de depuración (los dejamos para probar) ---
 @app.route("/debug_db")
 def debug_db():
     try:
@@ -168,14 +172,11 @@ def debug_db():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# --- NUEVA RUTA DE DEBUG ESPECIAL ---
 @app.route("/debug_tinaco")
 def debug_tinaco():
     try:
         like_query = "%tinaco%"
-        # Prueba la consulta LIKE directamente en la tabla de datos
         r = q("SELECT Codigo, Descripcion FROM inventario_plain WHERE Descripcion LIKE ? LIMIT 10", (like_query,))
-        
         return jsonify({
             "buscando_con_like": like_query,
             "resultados_encontrados": len(r),
@@ -184,19 +185,7 @@ def debug_tinaco():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-
-@app.route("/debug_sample")
-def debug_sample():
-    try:
-        sample = q("SELECT Codigo, Descripcion, Existencia, Clasificacion, Sucursal FROM inventario_plain LIMIT 10")
-        return jsonify({"sample": [dict(r) for r in sample]})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-# --- ejecución (corregida para Render) ---
+# --- ejecución ---
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port, debug=False)
-
-# Probando despliegue
