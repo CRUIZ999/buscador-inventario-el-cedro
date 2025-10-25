@@ -58,39 +58,66 @@ TPL = """
     .nores{background:#fff7ed;color:#92400e;padding:10px;border-radius:8px;margin-top:12px}
     .foot{margin:36px 0 6px 0;text-align:center;color:var(--gris);font-size:14px}
     .badge{color:#0f172a}
+    
+    /* --- CAMBIO 1: Añadir el estilo para la tabla fija --- */
+    .sticky-details {
+      position: -webkit-sticky; /* Para Safari */
+      position: sticky;
+      top: 0; /* Se pegará en la parte superior del viewport */
+      
+      /* Mismos estilos del .wrap para que coincida */
+      background: #fff;
+      z-index: 10;
+      
+      /* Estos márgenes y paddings son para "romper" el padding del 
+        contenedor .wrap y que la sección fija ocupe todo el ancho
+      */
+      margin-top: -22px;
+      margin-left: -28px;
+      margin-right: -28px;
+      padding-top: 22px;
+      padding-left: 28px;
+      padding-right: 28px;
+      padding-bottom: 12px;
+      
+      /* Una sombra sutil para separarlo del contenido que pasa por debajo */
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+    }
   </style>
 </head>
 <body>
 <header>Ferretería El Cedro • Buscador de Inventario</header>
 
 <div class="wrap">
-  <h3 id="detalle-titulo">🔹 Detalle:
-    {% if detalle %}
-      {{ detalle }}
-    {% else %}
-      Selecciona un producto
-    {% endif %}
-  </h3>
-
-  <table>
-    <thead>
-      <tr><th>Sucursal</th><th>Existencia</th><th>Clasificación</th></tr>
-    </thead>
-    <tbody id="detalle-tbody">
-      {% if detalle_rows %}
-        {% for r in detalle_rows %}
-          <tr>
-            <td>{{ r['Sucursal'] }}</td>
-            <td>{{ r['Existencia'] }}</td>
-            <td>{{ r['Clasificacion'] }}</td>
-          </tr>
-        {% endfor %}
+  
+  <div class="sticky-details">
+    <h3 id="detalle-titulo">🔹 Detalle:
+      {% if detalle %}
+        {{ detalle }}
       {% else %}
-        <tr><td colspan="3">Selecciona un producto para ver el detalle por sucursal</td></tr>
+        Selecciona un producto
       {% endif %}
-    </tbody>
-  </table>
+    </h3>
 
+    <table>
+      <thead>
+        <tr><th>Sucursal</th><th>Existencia</th><th>Clasificación</th></tr>
+      </thead>
+      <tbody id="detalle-tbody">
+        {% if detalle_rows %}
+          {% for r in detalle_rows %}
+            <tr>
+              <td>{{ r['Sucursal'] }}</td>
+              <td>{{ r['Existencia'] }}</td>
+              <td>{{ r['Clasificacion'] }}</td>
+            </tr>
+          {% endfor %}
+        {% else %}
+          <tr><td colspan="3">Selecciona un producto para ver el detalle por sucursal</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
   <form method="get" class="search">
     <input type="text" name="q" placeholder="Buscar producto o código..." value="{{ query or '' }}">
     <button class="btn" type="submit">Buscar</button>
@@ -114,32 +141,26 @@ TPL = """
 
 <script>
   async function sel(nombre) {
-    // 1. Obtener los elementos del DOM
     const titulo = document.getElementById('detalle-titulo');
     const tbody = document.getElementById('detalle-tbody');
 
-    // 2. Actualizar el título y mostrar estado de "cargando"
     titulo.innerText = '🔹 Detalle: ' + nombre;
     tbody.innerHTML = '<tr><td colspan="3">Cargando...</td></tr>';
 
     try {
-      // 3. Llamar a la nueva API para obtener los datos
       const response = await fetch('/api/detalle?nombre=' + encodeURIComponent(nombre));
       if (!response.ok) {
         throw new Error('Error de red');
       }
       const filas = await response.json();
 
-      // 4. Limpiar la tabla
       tbody.innerHTML = '';
 
-      // 5. Mostrar resultados o mensaje de "sin resultados"
       if (filas.length === 0) {
         tbody.innerHTML = '<tr><td colspan="3">No se encontraron detalles para este producto.</td></tr>';
         return;
       }
 
-      // 6. Llenar la tabla con las nuevas filas
       for (const r of filas) {
         const tr = document.createElement('tr');
         
@@ -213,7 +234,7 @@ def home():
         return f"<h1>Error Crítico en la App</h1><p>{str(e)}</p>", 500
 
 
-# --- CAMBIO 4: Nueva ruta de API ---
+# --- ruta de API ---
 @app.route("/api/detalle")
 def api_detalle():
     nombre = request.args.get("nombre", "", type=str).strip()
@@ -221,7 +242,6 @@ def api_detalle():
     if not nombre:
         return jsonify({"error": "No se proporcionó nombre"}), 400
 
-    # Usamos la consulta exacta (el 'nombre' viene del clic)
     detalle_rows = q(
         """
         SELECT Sucursal, Existencia, Clasificacion
@@ -231,11 +251,10 @@ def api_detalle():
         (nombre,),
     )
     
-    # Convertimos los resultados a una lista de diccionarios para JSON
     return jsonify([dict(r) for r in detalle_rows])
 
 
-# --- endpoints de depuración (sin cambios) ---
+# --- endpoints de depuración ---
 @app.route("/debug_db")
 def debug_db():
     try:
@@ -259,7 +278,7 @@ def debug_sample():
         return jsonify({"error": str(e)}), 500
 
 
-# --- ejecución (sin cambios) ---
+# --- ejecución ---
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port, debug=False)
