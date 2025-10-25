@@ -59,19 +59,12 @@ TPL = """
     .foot{margin:36px 0 6px 0;text-align:center;color:var(--gris);font-size:14px}
     .badge{color:#0f172a}
     
-    /* --- CAMBIO 1: Añadir el estilo para la tabla fija --- */
     .sticky-details {
-      position: -webkit-sticky; /* Para Safari */
+      position: -webkit-sticky;
       position: sticky;
-      top: 0; /* Se pegará en la parte superior del viewport */
-      
-      /* Mismos estilos del .wrap para que coincida */
+      top: 0;
       background: #fff;
       z-index: 10;
-      
-      /* Estos márgenes y paddings son para "romper" el padding del 
-        contenedor .wrap y que la sección fija ocupe todo el ancho
-      */
       margin-top: -22px;
       margin-left: -28px;
       margin-right: -28px;
@@ -79,8 +72,6 @@ TPL = """
       padding-left: 28px;
       padding-right: 28px;
       padding-bottom: 12px;
-      
-      /* Una sombra sutil para separarlo del contenido que pasa por debajo */
       box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
     }
   </style>
@@ -117,13 +108,13 @@ TPL = """
         {% endif %}
       </tbody>
     </table>
-  </div>
-  <form method="get" class="search">
-    <input type="text" name="q" placeholder="Buscar producto o código..." value="{{ query or '' }}">
-    <button class="btn" type="submit">Buscar</button>
-  </form>
-
-  {% if resultados %}
+    
+    <form method="get" class="search">
+      <input type="text" name="q" placeholder="Buscar producto o código..." value="{{ query or '' }}">
+      <button class="btn" type="submit">Buscar</button>
+    </form>
+    
+  </div> {% if resultados %}
     <div style="margin-top:10px">
       {% for r in resultados %}
         <div class="item" onclick="sel('{{ r['Descripcion']|e }}')">
