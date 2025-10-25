@@ -143,12 +143,31 @@ def home():
                 WHERE Codigo IN (
                     SELECT Codigo
                     FROM inventario
-                    WHERE inventario MATCH ?
+                    WHERE Descripcion MATCH ? 
                 )
                 LIMIT 30
                 """,
                 (fts,),
             )
+
+    # --- detalle por sucursal ---
+    if detalle:
+        detalle_rows = q(
+            """
+            SELECT Sucursal, Existencia, Clasificacion
+            FROM inventario_plain
+            WHERE Descripcion LIKE ?
+            """,
+            (f"%{detalle}%",),
+        )
+
+    return render_template_string(
+        TPL,
+        query=query,
+        detalle=detalle,
+        resultados=resultados,
+        detalle_rows=detalle_rows,
+    )
 
     # --- detalle por sucursal ---
     if detalle:
