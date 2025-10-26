@@ -29,8 +29,11 @@ def highlight_term(text, term):
     if not term:
         return text
     try:
+        # Usa regex para encontrar todas las ocurrencias ignorando mayúsculas/minúsculas
+        # y las envuelve en <mark>...</mark>
         return re.sub(f'({re.escape(term)})', r'<mark>\1</mark>', text, flags=re.IGNORECASE)
     except re.error:
+        # Si el término de búsqueda causa un error de regex, devuelve el texto original
         return text
 
 
@@ -269,28 +272,44 @@ def home():
         if query:
             like_query = f"%{query}%"
             
-            # --- CORRECCIÓN FINAL: Código limpio y funcional ---
+            # --- CORRECCIÓN FINAL Y ROBUSTA ---
+            # 1. Buscamos productos que coincidan con LIKE en la fila Global.
+            # 2. Si el filtro está activo, añadimos una subconsulta EXISTS 
+            #    para verificar que AL MENOS UNA sucursal (que no sea Global)
+            #    tenga existencia > 0 para ese mismo Codigo.
+            
             sql = """
-                SELECT Codigo, Descripcion, Existencia
-                FROM inventario_plain
-                WHERE (Descripcion LIKE ? OR Codigo LIKE ?)
-                  AND Sucursal = 'Global'
+                SELECT p_global.Codigo, p_global.Descripcion, p_global.Existencia
+                FROM inventario_plain p_global
+                WHERE p_global.Sucursal = 'Global'
+                  AND (p_global.Descripcion LIKE ? OR p_global.Codigo LIKE ?)
             """
             
             params = [like_query, like_query] 
             
+            # Añadir subconsulta de existencia si el checkbox está marcado
             if is_checked: 
-                sql += " AND CAST(Existencia AS REAL) > 0" 
+                sql += """
+                  AND EXISTS (
+                      SELECT 1 
+                      FROM inventario_plain p_sucursal 
+                      WHERE p_sucursal.Codigo = p_global.Codigo 
+                        AND p_sucursal.Sucursal != 'Global' 
+                        AND CAST(p_sucursal.Existencia AS REAL) > 0
+                  )
+                """
             
             sql += " LIMIT 30"
             
             resultados_raw = q(sql, tuple(params)) 
 
+            # Aplicar resaltado y formatear existencia
             resultados = []
             for r in resultados_raw:
                 res_dict = dict(r) 
                 try:
-                    res_dict['Existencia'] = int(float(res_dict['Existencia']))
+                    # Mostramos la existencia GLOBAL en la lista
+                    res_dict['Existencia'] = int(float(res_dict['Existencia'])) 
                 except (ValueError, TypeError):
                     res_dict['Existencia'] = 0 
                 
