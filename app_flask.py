@@ -36,6 +36,7 @@ def highlight_term(text, term):
 
 
 # ------------------ plantilla HTML ------------------
+# (El TPL no cambia, se omite por brevedad, usa el de la respuesta anterior)
 TPL = """
 <!doctype html>
 <html lang="es">
@@ -61,23 +62,11 @@ TPL = """
     .stock-sm { color: var(--rojo); font-weight: 700; }
     .stock-c { color: var(--naranja); font-weight: 700; }
 
-    /* --- CAMBIO: Contenedor para Input y Botón Limpiar --- */
     .search-container { position: relative; flex: 1; }
     .search { display:flex; gap:12px; margin-top:18px; }
-    .search input{ flex:1; padding:12px 14px; border:1px solid #cbd5e1; border-radius:8px; font-size:16px; padding-right: 35px; /* Espacio para la 'X' */ }
-    /* --- CAMBIO: Estilo del Botón Limpiar --- */
-    .clear-search {
-      position: absolute;
-      right: 10px;
-      top: 50%;
-      transform: translateY(-50%);
-      background: none; border: none; font-size: 20px;
-      color: var(--gris); cursor: pointer; padding: 0 5px;
-      display: none; /* Oculto por defecto */
-    }
-    .search input:not(:placeholder-shown) + .clear-search {
-      display: block; /* Mostrar si hay texto */
-    }
+    .search input{ flex:1; padding:12px 14px; border:1px solid #cbd5e1; border-radius:8px; font-size:16px; padding-right: 35px; }
+    .clear-search { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; font-size: 20px; color: var(--gris); cursor: pointer; padding: 0 5px; display: none; }
+    .search input:not(:placeholder-shown) + .clear-search { display: block; }
 
     .btn{background:var(--azul);color:#fff;border:none;border-radius:8px;padding:12px 18px;font-size:16px;cursor:pointer}
     .btn:hover{background:var(--azul-2)}
@@ -92,7 +81,6 @@ TPL = """
     .item:nth-child(even) { background-color: #f8faff; }
     .item:hover { background-color: var(--azul-claro); }
 
-    /* --- CAMBIO: Estilos para Filtros y Ordenación --- */
     .filters-container { display: flex; justify-content: space-between; align-items: flex-end; gap: 20px; margin-top: 15px; padding-bottom: 15px; border-bottom: 1px solid var(--gris-claro); flex-wrap: wrap;}
     .filter-group { display: flex; flex-direction: column; gap: 5px; }
     .filter-group label { font-weight: 600; color: var(--azul); margin-bottom: 3px; font-size: 14px;}
@@ -114,89 +102,63 @@ TPL = """
 </head>
 <body>
 <header>Ferretería El Cedro • Buscador de Inventario</header>
-
 <div class="wrap">
   <div class="sticky-details">
     <h3 id="detalle-titulo">🔹 Detalle: Selecciona un producto</h3>
     <table class="tabla-detalle">
-      <thead>
-        <tr id="detalle-thead">
-          <th>SUCURSALES</th><th>HI</th><th>EX</th><th>MT</th><th>SA</th><th>ADE</th>
-        </tr>
-      </thead>
-      <tbody id="detalle-tbody">
-        <tr><td>EXISTENCIAS</td><td colspan="5">Selecciona un producto</td></tr>
-        <tr><td>CLASIFICACION</td><td colspan="5">-</td></tr>
-      </tbody>
+      <thead><tr id="detalle-thead"><th>SUCURSALES</th><th>HI</th><th>EX</th><th>MT</th><th>SA</th><th>ADE</th></tr></thead>
+      <tbody id="detalle-tbody"><tr><td>EXISTENCIAS</td><td colspan="5">Selecciona un producto</td></tr><tr><td>CLASIFICACION</td><td colspan="5">-</td></tr></tbody>
     </table>
-    
     <form method="get" class="search" id="search-form">
       <div class="search-container">
         <input type="text" name="q" placeholder="Buscar producto o código..." value="{{ query or '' }}" id="search-input">
         <button type="button" class="clear-search" onclick="clearSearch()" title="Limpiar búsqueda">&times;</button>
       </div>
       <button class="btn" type="submit" id="search-button">Buscar</button>
-      
-      {% for suc in SUCURSALES_DISPONIBLES %}
-        <input type="hidden" name="sucursal" value="{{ suc }}" {% if suc in sucursales_seleccionadas %}disabled{% endif %}>
-      {% endfor %}
+      {# #}
+      {% for suc in SUCURSALES_DISPONIBLES %}<input type="hidden" name="sucursal_{{ suc }}" value="on" {% if suc not in sucursales_seleccionadas %}disabled{% endif %}>{% endfor %}
       <input type="hidden" name="clasificacion" value="{{ clasificacion_seleccionada or '' }}">
       <input type="hidden" name="orden" value="{{ orden_seleccionado or '' }}">
       <input type="hidden" name="filtro_stock" value="on" {% if not filtro_stock_checked %}disabled{% endif %}>
     </form>
-    
     <div class="filters-container">
       <div class="filter-group">
         <label>Filtrar por Sucursal:</label>
         <div class="sucursal-filters">
           {% for suc in SUCURSALES_DISPONIBLES %}
-          <label>
-            <input type="checkbox" name="sucursal" value="{{ suc }}" form="search-form" onchange="this.form.submit()"
-                   {% if suc in sucursales_seleccionadas %}checked{% endif %}> {{ suc }}
-          </label>
+          <label><input type="checkbox" name="sucursal" value="{{ suc }}" form="search-form" onchange="submitFormOnChange()" {% if suc in sucursales_seleccionadas %}checked{% endif %}> {{ suc }}</label>
           {% endfor %}
         </div>
       </div>
-      
       <div class="filter-group">
         <label for="clasificacion">Clasificación:</label>
-        <select name="clasificacion" id="clasificacion" form="search-form" onchange="this.form.submit()">
+        <select name="clasificacion" id="clasificacion" form="search-form" onchange="submitFormOnChange()">
           <option value="" {% if not clasificacion_seleccionada %}selected{% endif %}>Todas</option>
           {% for clas in CLASIFICACIONES_DISPONIBLES %}
-          <option value="{{ clas }}" {% if clas == clasificacion_seleccionada %}selected{% endif %}>
-            {{ 'S/M' if clas == 'Sin Mov' else clas }}
-          </option>
+          <option value="{{ clas }}" {% if clas == clasificacion_seleccionada %}selected{% endif %}>{{ 'S/M' if clas == 'Sin Mov' else clas }}</option>
           {% endfor %}
         </select>
       </div>
-      
       <div class="filter-group">
         <label for="orden">Ordenar por:</label>
-        <select name="orden" id="orden" form="search-form" onchange="this.form.submit()">
+        <select name="orden" id="orden" form="search-form" onchange="submitFormOnChange()">
           <option value="descripcion_asc" {% if orden_seleccionado == 'descripcion_asc' %}selected{% endif %}>Descripción (A-Z)</option>
           <option value="descripcion_desc" {% if orden_seleccionado == 'descripcion_desc' %}selected{% endif %}>Descripción (Z-A)</option>
           <option value="stock_desc" {% if orden_seleccionado == 'stock_desc' %}selected{% endif %}>Stock (Mayor a Menor)</option>
           <option value="stock_asc" {% if orden_seleccionado == 'stock_asc' %}selected{% endif %}>Stock (Menor a Mayor)</option>
         </select>
       </div>
-      
       <div class="filter-box">
-        <input type="checkbox" name="filtro_stock" value="on" id="filtro_stock"
-               form="search-form" onchange="this.form.submit()"
-               {% if filtro_stock_checked %}checked{% endif %}>
+        <input type="checkbox" name="filtro_stock" value="on" id="filtro_stock" form="search-form" onchange="submitFormOnChange()" {% if filtro_stock_checked %}checked{% endif %}>
         <label for="filtro_stock">Solo con existencia</label>
       </div>
     </div>
-  </div> 
-
+  </div>
   {% if resultados %}
     <div style="margin-top:10px">
       {% for r in resultados %}
         <div class="item" onclick="sel('{{ r['Descripcion']|e }}')">
-          <div class="item-desc">
-            <b>{{ r['HighlightedDesc']|safe }}</b> 
-            <span class="badge">— {{ r['Codigo'] }}</span>
-          </div>
+          <div class="item-desc"><b>{{ r['HighlightedDesc']|safe }}</b> <span class="badge">— {{ r['Codigo'] }}</span></div>
           <span class="stock-badge">Stock: {{ r['Existencia'] | int }}</span>
         </div>
       {% endfor %}
@@ -207,12 +169,9 @@ TPL = """
      <div class="nores" style="text-align:center;">Ingresa un término de búsqueda.</div>
   {% endif %}
 </div>
-
 <div class="foot">Hecho para uso interno – Inventario consolidado • Ferretería El Cedro</div>
-
 <script>
-  async function sel(nombre) {
-    // ... (El código de la función sel() no cambia) ...
+  async function sel(nombre) { /* ... (código sel() sin cambios) ... */
     const titulo = document.getElementById('detalle-titulo');
     const tbody = document.getElementById('detalle-tbody');
     titulo.innerText = '🔹 Detalle: ' + nombre;
@@ -255,33 +214,39 @@ TPL = """
   if (searchForm) {
     searchForm.addEventListener('submit', function() {
       if (document.querySelector('input[name="q"]').value) {
-        searchButton.disabled = true;
-        searchButton.innerText = 'Buscando...';
+        searchButton.disabled = true; searchButton.innerText = 'Buscando...';
       }
+      // Limpiar campos hidden desactivados para que no se envíen
+      Array.from(searchForm.querySelectorAll('input[type=hidden][disabled]')).forEach(el => el.parentNode.removeChild(el));
     });
   }
-
-  /* --- CAMBIO: Función para limpiar búsqueda --- */
   function clearSearch() {
     const searchInput = document.getElementById('search-input');
     if (searchInput) {
       searchInput.value = '';
-      // Opcional: enfocar el input después de limpiar
-      // searchInput.focus(); 
-      
-      // Enviamos el formulario para actualizar resultados (mostrando nada)
-      // Los campos hidden mantendrán los otros filtros activos si existen
+      // Volver a habilitar todos los hidden antes de enviar para mantener filtros
+      Array.from(searchForm.querySelectorAll('input[type=hidden]')).forEach(el => el.disabled = false);
+      // Quitar los valores de los checkboxes de sucursal del form para que se envíe "vacío"
+      Array.from(searchForm.querySelectorAll('input[name=sucursal]')).forEach(el => el.checked = false); 
+      // Resetear dropdowns
+      document.getElementById('clasificacion').value = '';
+      document.getElementById('orden').value = 'descripcion_asc';
+      document.getElementById('filtro_stock').checked = true; // Por defecto
       searchForm.submit(); 
     }
+  }
+  // Función para enviar el formulario automáticamente al cambiar filtros
+  function submitFormOnChange() {
+      // Limpiar campos hidden desactivados antes de enviar
+      Array.from(searchForm.querySelectorAll('input[type=hidden][disabled]')).forEach(el => el.parentNode.removeChild(el));
+      searchForm.submit();
   }
 </script>
 </body>
 </html>
 """
 
-
 # ------------------ Constantes ------------------
-# Definimos aquí para pasarlas a la plantilla fácilmente
 SUCURSALES_DISPONIBLES = ['HI', 'EX', 'MT', 'SA', 'ADE']
 CLASIFICACIONES_DISPONIBLES = ['A', 'B', 'C', 'Sin Mov']
 
@@ -293,98 +258,72 @@ def home():
     filtro_stock = request.args.get("filtro_stock")
     is_checked = (filtro_stock == "on")
     
-    # --- CAMBIO: Leer nuevos filtros ---
-    sucursales_seleccionadas = request.args.getlist("sucursal") # getlist para checkboxes
+    sucursales_seleccionadas = request.args.getlist("sucursal") 
     clasificacion_seleccionada = request.args.get("clasificacion", "").strip()
-    orden_seleccionado = request.args.get("orden", "descripcion_asc") # Predeterminado A-Z
+    orden_seleccionado = request.args.get("orden", "descripcion_asc")
     
+    # Si no se selecciona ninguna sucursal, asumimos que se quieren todas
+    if not sucursales_seleccionadas:
+        sucursales_seleccionadas = SUCURSALES_DISPONIBLES[:] # Copiar la lista
+        
     resultados = []
     
     try:
-        # Solo buscamos si hay texto en 'q'
         if query:
             like_query = f"%{query}%"
-            
-            # --- CAMBIO: Consulta SQL MUCHO más compleja ---
             params = [like_query, like_query] 
             
-            # Base de la consulta: selecciona de la fila 'Global' que coincida
+            # --- CORRECCIÓN EN LA LÓGICA SQL ---
+            # Ahora la consulta principal busca productos que coincidan Y que existan
+            # en las sucursales/clasificaciones filtradas (si aplica).
+            
             sql = """
-                SELECT p_global.Codigo, p_global.Descripcion, p_global.Existencia
+                SELECT DISTINCT p_global.Codigo, p_global.Descripcion, p_global.Existencia
                 FROM inventario_plain p_global
+                JOIN inventario_plain p_sucursal ON p_global.Codigo = p_sucursal.Codigo 
                 WHERE p_global.Sucursal = 'Global'
                   AND (p_global.Descripcion LIKE ? OR p_global.Codigo LIKE ?)
+                  AND p_sucursal.Sucursal != 'Global'
             """
             
-            # Subconsulta base para filtros de existencia y clasificación
-            subquery_exists = """
-                 EXISTS (
-                     SELECT 1 
-                     FROM inventario_plain p_sucursal 
-                     WHERE p_sucursal.Codigo = p_global.Codigo 
-                       AND p_sucursal.Sucursal != 'Global' 
-            """
-            
-            # Añadir filtro por sucursal (si se seleccionó alguna)
-            if sucursales_seleccionadas:
-                # Añadir placeholders (?) para cada sucursal seleccionada
+            # Aplicar filtro de sucursal directamente en el JOIN/WHERE principal
+            if sucursales_seleccionadas and len(sucursales_seleccionadas) < len(SUCURSALES_DISPONIBLES):
                 placeholders = ', '.join('?' * len(sucursales_seleccionadas))
-                subquery_exists += f" AND p_sucursal.Sucursal IN ({placeholders})"
-                params.extend(sucursales_seleccionadas) # Añadir sucursales a los parámetros
+                sql += f" AND p_sucursal.Sucursal IN ({placeholders})"
+                params.extend(sucursales_seleccionadas)
 
-            # Añadir filtro por clasificación (si se seleccionó una)
+            # Aplicar filtro de clasificación
             if clasificacion_seleccionada:
-                 # Usamos trim() en SQL para limpiar espacios
-                subquery_exists += " AND trim(p_sucursal.Clasificacion) = ?"
-                params.append(clasificacion_seleccionada) # Añadir clasificación a params
+                sql += " AND trim(p_sucursal.Clasificacion) = ?"
+                params.append(clasificacion_seleccionada)
 
-            # Añadir filtro de stock > 0 (si checkbox está marcado O si se filtra por sucursal/clasif)
-            # Siempre filtramos por stock si hay filtros de sucursal o clasificación para evitar
-            # mostrar productos que solo existen en Global pero no en las sucursales filtradas.
+            # Aplicar filtro de stock (si checkbox activo O si hay filtros de suc/clasif)
             if is_checked or sucursales_seleccionadas or clasificacion_seleccionada:
-                 subquery_exists += " AND CAST(p_sucursal.Existencia AS REAL) > 0"
+                 sql += " AND CAST(p_sucursal.Existencia AS REAL) > 0"
 
-            # Cerrar el EXISTS y añadirlo a la consulta principal si se aplicó algún filtro interno
-            if is_checked or sucursales_seleccionadas or clasificacion_seleccionada:
-                 subquery_exists += " )"
-                 sql += " AND " + subquery_exists
-            
-            # --- CAMBIO: Añadir Ordenación ---
+            # Ordenación (se aplica sobre los datos de p_global)
             order_clause = ""
-            if orden_seleccionado == 'descripcion_asc':
-                order_clause = " ORDER BY p_global.Descripcion ASC"
-            elif orden_seleccionado == 'descripcion_desc':
-                order_clause = " ORDER BY p_global.Descripcion DESC"
-            elif orden_seleccionado == 'stock_desc':
-                # Ordenar por existencia numérica descendente
-                order_clause = " ORDER BY CAST(p_global.Existencia AS REAL) DESC"
-            elif orden_seleccionado == 'stock_asc':
-                # Ordenar por existencia numérica ascendente
-                order_clause = " ORDER BY CAST(p_global.Existencia AS REAL) ASC"
+            if orden_seleccionado == 'descripcion_asc': order_clause = " ORDER BY p_global.Descripcion ASC"
+            elif orden_seleccionado == 'descripcion_desc': order_clause = " ORDER BY p_global.Descripcion DESC"
+            elif orden_seleccionado == 'stock_desc': order_clause = " ORDER BY CAST(p_global.Existencia AS REAL) DESC"
+            elif orden_seleccionado == 'stock_asc': order_clause = " ORDER BY CAST(p_global.Existencia AS REAL) ASC"
             
-            sql += order_clause + " LIMIT 30" # Mantenemos el límite por ahora
+            sql += order_clause + " LIMIT 30"
             
             resultados_raw = q(sql, tuple(params)) 
 
-            # Aplicar resaltado y formatear existencia
             resultados = []
             for r in resultados_raw:
                 res_dict = dict(r) 
-                try:
-                    res_dict['Existencia'] = int(float(res_dict['Existencia']))
+                try: res_dict['Existencia'] = int(float(res_dict['Existencia']))
                 except (ValueError, TypeError): res_dict['Existencia'] = 0 
                 res_dict['HighlightedDesc'] = highlight_term(res_dict['Descripcion'], query)
                 resultados.append(res_dict)
 
-        # --- CAMBIO: Pasar más variables a la plantilla ---
         return render_template_string(
             TPL,
-            query=query,
-            detalle="",
-            resultados=resultados,
-            detalle_rows=[],
+            query=query, detalle="", resultados=resultados, detalle_rows=[],
             filtro_stock_checked=is_checked,
-            # Pasar listas y selecciones para mantener estado del formulario
             SUCURSALES_DISPONIBLES=SUCURSALES_DISPONIBLES,
             CLASIFICACIONES_DISPONIBLES=CLASIFICACIONES_DISPONIBLES,
             sucursales_seleccionadas=sucursales_seleccionadas,
@@ -393,7 +332,7 @@ def home():
         )
     except Exception as e:
         print(f"Error en la ruta home: {e}") 
-        # Intentar renderizar la plantilla incluso con error para mostrar interfaz
+        # Intentar renderizar plantilla incluso con error
         try:
              return render_template_string(
                 TPL, query=query, detalle="", resultados=[], detalle_rows=[],
@@ -402,9 +341,9 @@ def home():
                 sucursales_seleccionadas=sucursales_seleccionadas,
                 clasificacion_seleccionada=clasificacion_seleccionada,
                 orden_seleccionado=orden_seleccionado,
-                error_message=f"Error al buscar: {str(e)}" # Opcional: mostrar error
+                error_message=f"Error al buscar: {str(e)}"
             )
-        except: # Si falla hasta renderizar, mostrar error simple
+        except: 
             return f"<h1>Error Crítico en la App</h1><p>{str(e)}</p>", 500
 
 
