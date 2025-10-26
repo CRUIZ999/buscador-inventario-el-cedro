@@ -15,26 +15,24 @@ def q(query, params=()):
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
+        # print("SQL:", query) # Descomentar para depurar SQL
+        # print("Params:", params) # Descomentar para depurar parámetros
         cur.execute(query, params)
         rows = cur.fetchall()
         conn.close()
         return rows
     except Exception as e:
         print(f"Error en la base de datos: {e}")
+        print(f"SQL Fallido: {query}")
+        print(f"Params Fallidos: {params}")
         return []
 
 # --- Función para resaltar ---
 def highlight_term(text, term):
-    """Resalta (con <mark>) todas las ocurrencias de 'term' en 'text', ignorando mayúsculas."""
-    if not term:
-        return text
+    if not term: return text
     try:
-        # Usa regex para encontrar todas las ocurrencias ignorando mayúsculas/minúsculas
-        # y las envuelve en <mark>...</mark>
         return re.sub(f'({re.escape(term)})', r'<mark>\1</mark>', text, flags=re.IGNORECASE)
-    except re.error:
-        # Si el término de búsqueda causa un error de regex, devuelve el texto original
-        return text
+    except re.error: return text
 
 
 # ------------------ plantilla HTML ------------------
@@ -47,59 +45,61 @@ TPL = """
   <style>
     :root{
       --azul:#1e40af; --azul-2:#2563eb; --azul-claro:#e8f0ff;
-      --gris:#475569; --bg:#f5f8ff;
-      --rojo: #dc2626;
-      --naranja: #f97316;
-      --amarillo-resaltar: #fef08a; /* yellow-200 */
+      --gris:#475569; --bg:#f5f8ff; --gris-claro: #f1f5f9;
+      --rojo: #dc2626; --naranja: #f97316; --amarillo-resaltar: #fef08a;
     }
     *{box-sizing:border-box}
     body{margin:0;background:var(--bg);font-family:Segoe UI,system-ui,Arial,sans-serif}
-    
-    header{
-      background:linear-gradient(90deg,var(--azul),var(--azul-2));
-      color:#fff; height: 60px; padding: 0 28px; display: flex;
-      align-items: center; font-weight:700; font-size:20px;
-      box-shadow:0 2px 6px rgba(0,0,0,.18);
-      position: -webkit-sticky; position: sticky; top: 0; z-index: 20;
-    }
-
+    header{ background:linear-gradient(90deg,var(--azul),var(--azul-2)); color:#fff; height: 60px; padding: 0 28px; display: flex; align-items: center; font-weight:700; font-size:20px; box-shadow:0 2px 6px rgba(0,0,0,.18); position: sticky; top: 0; z-index: 20; }
     .wrap{max-width:1100px;margin:32px auto;background:#fff;border-radius:12px;padding:22px 28px;box-shadow:0 6px 14px rgba(0,0,0,.08)}
     h3{margin:6px 0 14px 0;color:var(--azul)}
     table{width:100%;border-collapse:collapse;margin-top:6px}
     th{background:var(--azul-claro);color:var(--azul);text-align:left;padding:10px}
-    td{padding:10px;border-bottom:1px solid #f1f5f9}
-    
+    td{padding:10px;border-bottom:1px solid var(--gris-claro)}
     .tabla-detalle th, .tabla-detalle td { text-align: center; }
-    .tabla-detalle th:first-child, .tabla-detalle td:first-child { 
-      text-align: left; font-weight: 700; color: var(--azul);
-    }
-
+    .tabla-detalle th:first-child, .tabla-detalle td:first-child { text-align: left; font-weight: 700; color: var(--azul); }
     .stock-sm { color: var(--rojo); font-weight: 700; }
     .stock-c { color: var(--naranja); font-weight: 700; }
 
-    .search{display:flex;gap:12px;margin-top:18px}
-    .search input{flex:1;padding:12px 14px;border:1px solid #cbd5e1;border-radius:8px;font-size:16px}
+    /* --- CAMBIO: Contenedor para Input y Botón Limpiar --- */
+    .search-container { position: relative; flex: 1; }
+    .search { display:flex; gap:12px; margin-top:18px; }
+    .search input{ flex:1; padding:12px 14px; border:1px solid #cbd5e1; border-radius:8px; font-size:16px; padding-right: 35px; /* Espacio para la 'X' */ }
+    /* --- CAMBIO: Estilo del Botón Limpiar --- */
+    .clear-search {
+      position: absolute;
+      right: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none; border: none; font-size: 20px;
+      color: var(--gris); cursor: pointer; padding: 0 5px;
+      display: none; /* Oculto por defecto */
+    }
+    .search input:not(:placeholder-shown) + .clear-search {
+      display: block; /* Mostrar si hay texto */
+    }
+
     .btn{background:var(--azul);color:#fff;border:none;border-radius:8px;padding:12px 18px;font-size:16px;cursor:pointer}
     .btn:hover{background:var(--azul-2)}
     .btn:disabled{background:var(--gris);cursor:not-allowed}
 
-    .item{ display: flex; justify-content: space-between; align-items: center;
-      padding: 12px 8px; border-bottom: 1px solid #eef2f7; cursor: pointer;
-    }
-    .item-desc { flex-grow: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .item{ display: flex; justify-content: space-between; align-items: center; padding: 12px 8px; border-bottom: 1px solid #eef2f7; cursor: pointer; }
+    .item-desc { flex-grow: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-right: 10px;}
     .item-desc b{color:#0f172a}
     .item-desc .badge{color:#0f172a}
-    
-    .item-desc mark { 
-      background-color: var(--amarillo-resaltar); 
-      padding: 0 2px; 
-      border-radius: 3px;
-      color: #1e293b; /* slate-800 */
-    }
-    
+    .item-desc mark { background-color: var(--amarillo-resaltar); padding: 0 2px; border-radius: 3px; color: #1e293b; }
     .stock-badge { flex-shrink: 0; font-weight: 700; color: var(--azul); padding-left: 15px; }
     .item:nth-child(even) { background-color: #f8faff; }
     .item:hover { background-color: var(--azul-claro); }
+
+    /* --- CAMBIO: Estilos para Filtros y Ordenación --- */
+    .filters-container { display: flex; justify-content: space-between; align-items: flex-end; gap: 20px; margin-top: 15px; padding-bottom: 15px; border-bottom: 1px solid var(--gris-claro); flex-wrap: wrap;}
+    .filter-group { display: flex; flex-direction: column; gap: 5px; }
+    .filter-group label { font-weight: 600; color: var(--azul); margin-bottom: 3px; font-size: 14px;}
+    .filter-group select { padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 14px; background-color: #fff; }
+    .sucursal-filters { display: flex; gap: 15px; align-items: center; flex-wrap: wrap; }
+    .sucursal-filters label { font-weight: normal; color: var(--gris); margin: 0; font-size: 14px; cursor: pointer;}
+    .sucursal-filters input { margin-right: 4px; vertical-align: middle; cursor: pointer;}
 
     .filter-box { margin-top: 12px; text-align: right; color: var(--gris); }
     .filter-box input { margin-right: 6px; vertical-align: middle; }
@@ -107,76 +107,87 @@ TPL = """
 
     .nores{background:#fff7ed;color:#92400e;padding:10px;border-radius:8px;margin-top:12px}
     .foot{margin:36px 0 6px 0;text-align:center;color:var(--gris);font-size:14px}
-    
-    .sticky-details {
-      position: -webkit-sticky; position: sticky; top: 60px; 
-      background: #fff; z-index: 10;
-      margin-top: -22px; margin-left: -28px; margin-right: -28px;
-      padding-top: 22px; padding-left: 28px; padding-right: 28px; padding-bottom: 12px;
-      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-    }
-    
-    .spinner {
-      border: 4px solid rgba(0, 0, 0, 0.1);
-      width: 36px;
-      height: 36px;
-      border-radius: 50%;
-      border-left-color: var(--azul);
-      animation: spin 1s ease infinite;
-      margin: 10px auto; /* Centrar el spinner */
-    }
-    @keyframes spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
-    }
+    .sticky-details { position: sticky; top: 60px; background: #fff; z-index: 10; margin: -22px -28px 0 -28px; padding: 22px 28px 12px 28px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); }
+    .spinner { border: 4px solid rgba(0, 0, 0, 0.1); width: 36px; height: 36px; border-radius: 50%; border-left-color: var(--azul); animation: spin 1s ease infinite; margin: 10px auto; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
 <header>Ferretería El Cedro • Buscador de Inventario</header>
 
 <div class="wrap">
-  
   <div class="sticky-details">
     <h3 id="detalle-titulo">🔹 Detalle: Selecciona un producto</h3>
-
     <table class="tabla-detalle">
       <thead>
         <tr id="detalle-thead">
-          <th>SUCURSALES</th>
-          <th>HI</th>
-          <th>EX</th>
-          <th>MT</th>
-          <th>SA</th>
-          <th>ADE</th>
+          <th>SUCURSALES</th><th>HI</th><th>EX</th><th>MT</th><th>SA</th><th>ADE</th>
         </tr>
       </thead>
       <tbody id="detalle-tbody">
-        <tr>
-            <td>EXISTENCIAS</td>
-            <td colspan="5">Selecciona un producto</td>
-        </tr>
-        <tr>
-            <td>CLASIFICACION</td>
-            <td colspan="5">-</td>
-        </tr>
+        <tr><td>EXISTENCIAS</td><td colspan="5">Selecciona un producto</td></tr>
+        <tr><td>CLASIFICACION</td><td colspan="5">-</td></tr>
       </tbody>
     </table>
     
     <form method="get" class="search" id="search-form">
-      <input type="text" name="q" placeholder="Buscar producto o código..." value="{{ query or '' }}">
+      <div class="search-container">
+        <input type="text" name="q" placeholder="Buscar producto o código..." value="{{ query or '' }}" id="search-input">
+        <button type="button" class="clear-search" onclick="clearSearch()" title="Limpiar búsqueda">&times;</button>
+      </div>
       <button class="btn" type="submit" id="search-button">Buscar</button>
+      
+      {% for suc in SUCURSALES_DISPONIBLES %}
+        <input type="hidden" name="sucursal" value="{{ suc }}" {% if suc in sucursales_seleccionadas %}disabled{% endif %}>
+      {% endfor %}
+      <input type="hidden" name="clasificacion" value="{{ clasificacion_seleccionada or '' }}">
+      <input type="hidden" name="orden" value="{{ orden_seleccionado or '' }}">
+      <input type="hidden" name="filtro_stock" value="on" {% if not filtro_stock_checked %}disabled{% endif %}>
     </form>
     
-    <div class="filter-box">
-      <input type="checkbox" name="filtro_stock" value="on" id="filtro_stock"
-             form="search-form"
-             onchange="this.form.submit()"
-             {% if filtro_stock_checked %}checked{% endif %}>
-      <label for="filtro_stock">Mostrar solo con existencia</label>
+    <div class="filters-container">
+      <div class="filter-group">
+        <label>Filtrar por Sucursal:</label>
+        <div class="sucursal-filters">
+          {% for suc in SUCURSALES_DISPONIBLES %}
+          <label>
+            <input type="checkbox" name="sucursal" value="{{ suc }}" form="search-form" onchange="this.form.submit()"
+                   {% if suc in sucursales_seleccionadas %}checked{% endif %}> {{ suc }}
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+      
+      <div class="filter-group">
+        <label for="clasificacion">Clasificación:</label>
+        <select name="clasificacion" id="clasificacion" form="search-form" onchange="this.form.submit()">
+          <option value="" {% if not clasificacion_seleccionada %}selected{% endif %}>Todas</option>
+          {% for clas in CLASIFICACIONES_DISPONIBLES %}
+          <option value="{{ clas }}" {% if clas == clasificacion_seleccionada %}selected{% endif %}>
+            {{ 'S/M' if clas == 'Sin Mov' else clas }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      
+      <div class="filter-group">
+        <label for="orden">Ordenar por:</label>
+        <select name="orden" id="orden" form="search-form" onchange="this.form.submit()">
+          <option value="descripcion_asc" {% if orden_seleccionado == 'descripcion_asc' %}selected{% endif %}>Descripción (A-Z)</option>
+          <option value="descripcion_desc" {% if orden_seleccionado == 'descripcion_desc' %}selected{% endif %}>Descripción (Z-A)</option>
+          <option value="stock_desc" {% if orden_seleccionado == 'stock_desc' %}selected{% endif %}>Stock (Mayor a Menor)</option>
+          <option value="stock_asc" {% if orden_seleccionado == 'stock_asc' %}selected{% endif %}>Stock (Menor a Mayor)</option>
+        </select>
+      </div>
+      
+      <div class="filter-box">
+        <input type="checkbox" name="filtro_stock" value="on" id="filtro_stock"
+               form="search-form" onchange="this.form.submit()"
+               {% if filtro_stock_checked %}checked{% endif %}>
+        <label for="filtro_stock">Solo con existencia</label>
+      </div>
     </div>
-    
   </div> 
-
 
   {% if resultados %}
     <div style="margin-top:10px">
@@ -191,7 +202,9 @@ TPL = """
       {% endfor %}
     </div>
   {% elif query %}
-    <div class="nores">Sin resultados.</div>
+    <div class="nores">Sin resultados para "{{ query }}" con los filtros aplicados.</div>
+  {% else %}
+     <div class="nores" style="text-align:center;">Ingresa un término de búsqueda.</div>
   {% endif %}
 </div>
 
@@ -199,28 +212,24 @@ TPL = """
 
 <script>
   async function sel(nombre) {
+    // ... (El código de la función sel() no cambia) ...
     const titulo = document.getElementById('detalle-titulo');
     const tbody = document.getElementById('detalle-tbody');
-
     titulo.innerText = '🔹 Detalle: ' + nombre;
     tbody.innerHTML = `<tr><td colspan="6"><div class="spinner"></div></td></tr>`;
-
     try {
       const response = await fetch('/api/detalle?nombre=' + encodeURIComponent(nombre));
       if (!response.ok) throw new Error('Error de red');
       const filas = await response.json(); 
-
       if (filas.length === 0) {
         tbody.innerHTML = `<tr><td>EXISTENCIAS</td><td colspan="5">No se encontraron detalles</td></tr><tr><td>CLASIFICACION</td><td colspan="5">-</td></tr>`;
         return;
       }
-
       const datos = {};
       filas.forEach(r => datos[r.Sucursal] = r);
       const sucursales = ['HI', 'EX', 'MT', 'SA', 'ADE'];
       let filaExistencias = '<td><b>EXISTENCIAS</b></td>';
       let filaClasificacion = '<td><b>CLASIFICACION</b></td>';
-
       sucursales.forEach(suc => {
         const d = datos[suc]; 
         let claseColor = '', clasificacionTexto = '-', existenciaNum = 0; 
@@ -234,9 +243,7 @@ TPL = """
         filaExistencias += `<td class="${claseColor}">${existenciaNum}</td>`;
         filaClasificacion += `<td class="${claseColor}">${clasificacionTexto}</td>`;
       });
-
       tbody.innerHTML = `<tr>${filaExistencias}</tr><tr>${filaClasificacion}</tr>`;
-
     } catch (error) {
       console.error('Error al cargar detalle:', error);
       tbody.innerHTML = '<tr><td colspan="6">Error al cargar los datos.</td></tr>';
@@ -253,10 +260,30 @@ TPL = """
       }
     });
   }
+
+  /* --- CAMBIO: Función para limpiar búsqueda --- */
+  function clearSearch() {
+    const searchInput = document.getElementById('search-input');
+    if (searchInput) {
+      searchInput.value = '';
+      // Opcional: enfocar el input después de limpiar
+      // searchInput.focus(); 
+      
+      // Enviamos el formulario para actualizar resultados (mostrando nada)
+      // Los campos hidden mantendrán los otros filtros activos si existen
+      searchForm.submit(); 
+    }
+  }
 </script>
 </body>
 </html>
 """
+
+
+# ------------------ Constantes ------------------
+# Definimos aquí para pasarlas a la plantilla fácilmente
+SUCURSALES_DISPONIBLES = ['HI', 'EX', 'MT', 'SA', 'ADE']
+CLASIFICACIONES_DISPONIBLES = ['A', 'B', 'C', 'Sin Mov']
 
 
 # ------------------ rutas ------------------
@@ -264,20 +291,24 @@ TPL = """
 def home():
     query = request.args.get("q", "", type=str).strip()
     filtro_stock = request.args.get("filtro_stock")
-    is_checked = (filtro_stock == "on") # True si el checkbox está marcado
+    is_checked = (filtro_stock == "on")
+    
+    # --- CAMBIO: Leer nuevos filtros ---
+    sucursales_seleccionadas = request.args.getlist("sucursal") # getlist para checkboxes
+    clasificacion_seleccionada = request.args.get("clasificacion", "").strip()
+    orden_seleccionado = request.args.get("orden", "descripcion_asc") # Predeterminado A-Z
     
     resultados = []
     
     try:
+        # Solo buscamos si hay texto en 'q'
         if query:
             like_query = f"%{query}%"
             
-            # --- CORRECCIÓN FINAL Y ROBUSTA ---
-            # 1. Buscamos productos que coincidan con LIKE en la fila Global.
-            # 2. Si el filtro está activo, añadimos una subconsulta EXISTS 
-            #    para verificar que AL MENOS UNA sucursal (que no sea Global)
-            #    tenga existencia > 0 para ese mismo Codigo.
+            # --- CAMBIO: Consulta SQL MUCHO más compleja ---
+            params = [like_query, like_query] 
             
+            # Base de la consulta: selecciona de la fila 'Global' que coincida
             sql = """
                 SELECT p_global.Codigo, p_global.Descripcion, p_global.Existencia
                 FROM inventario_plain p_global
@@ -285,21 +316,53 @@ def home():
                   AND (p_global.Descripcion LIKE ? OR p_global.Codigo LIKE ?)
             """
             
-            params = [like_query, like_query] 
+            # Subconsulta base para filtros de existencia y clasificación
+            subquery_exists = """
+                 EXISTS (
+                     SELECT 1 
+                     FROM inventario_plain p_sucursal 
+                     WHERE p_sucursal.Codigo = p_global.Codigo 
+                       AND p_sucursal.Sucursal != 'Global' 
+            """
             
-            # Añadir subconsulta de existencia si el checkbox está marcado
-            if is_checked: 
-                sql += """
-                  AND EXISTS (
-                      SELECT 1 
-                      FROM inventario_plain p_sucursal 
-                      WHERE p_sucursal.Codigo = p_global.Codigo 
-                        AND p_sucursal.Sucursal != 'Global' 
-                        AND CAST(p_sucursal.Existencia AS REAL) > 0
-                  )
-                """
+            # Añadir filtro por sucursal (si se seleccionó alguna)
+            if sucursales_seleccionadas:
+                # Añadir placeholders (?) para cada sucursal seleccionada
+                placeholders = ', '.join('?' * len(sucursales_seleccionadas))
+                subquery_exists += f" AND p_sucursal.Sucursal IN ({placeholders})"
+                params.extend(sucursales_seleccionadas) # Añadir sucursales a los parámetros
+
+            # Añadir filtro por clasificación (si se seleccionó una)
+            if clasificacion_seleccionada:
+                 # Usamos trim() en SQL para limpiar espacios
+                subquery_exists += " AND trim(p_sucursal.Clasificacion) = ?"
+                params.append(clasificacion_seleccionada) # Añadir clasificación a params
+
+            # Añadir filtro de stock > 0 (si checkbox está marcado O si se filtra por sucursal/clasif)
+            # Siempre filtramos por stock si hay filtros de sucursal o clasificación para evitar
+            # mostrar productos que solo existen en Global pero no en las sucursales filtradas.
+            if is_checked or sucursales_seleccionadas or clasificacion_seleccionada:
+                 subquery_exists += " AND CAST(p_sucursal.Existencia AS REAL) > 0"
+
+            # Cerrar el EXISTS y añadirlo a la consulta principal si se aplicó algún filtro interno
+            if is_checked or sucursales_seleccionadas or clasificacion_seleccionada:
+                 subquery_exists += " )"
+                 sql += " AND " + subquery_exists
             
-            sql += " LIMIT 30"
+            # --- CAMBIO: Añadir Ordenación ---
+            order_clause = ""
+            if orden_seleccionado == 'descripcion_asc':
+                order_clause = " ORDER BY p_global.Descripcion ASC"
+            elif orden_seleccionado == 'descripcion_desc':
+                order_clause = " ORDER BY p_global.Descripcion DESC"
+            elif orden_seleccionado == 'stock_desc':
+                # Ordenar por existencia numérica descendente
+                order_clause = " ORDER BY CAST(p_global.Existencia AS REAL) DESC"
+            elif orden_seleccionado == 'stock_asc':
+                # Ordenar por existencia numérica ascendente
+                order_clause = " ORDER BY CAST(p_global.Existencia AS REAL) ASC"
+            
+            sql += order_clause + " LIMIT 30" # Mantenemos el límite por ahora
             
             resultados_raw = q(sql, tuple(params)) 
 
@@ -308,25 +371,41 @@ def home():
             for r in resultados_raw:
                 res_dict = dict(r) 
                 try:
-                    # Mostramos la existencia GLOBAL en la lista
-                    res_dict['Existencia'] = int(float(res_dict['Existencia'])) 
-                except (ValueError, TypeError):
-                    res_dict['Existencia'] = 0 
-                
+                    res_dict['Existencia'] = int(float(res_dict['Existencia']))
+                except (ValueError, TypeError): res_dict['Existencia'] = 0 
                 res_dict['HighlightedDesc'] = highlight_term(res_dict['Descripcion'], query)
                 resultados.append(res_dict)
 
+        # --- CAMBIO: Pasar más variables a la plantilla ---
         return render_template_string(
             TPL,
             query=query,
             detalle="",
             resultados=resultados,
             detalle_rows=[],
-            filtro_stock_checked=is_checked 
+            filtro_stock_checked=is_checked,
+            # Pasar listas y selecciones para mantener estado del formulario
+            SUCURSALES_DISPONIBLES=SUCURSALES_DISPONIBLES,
+            CLASIFICACIONES_DISPONIBLES=CLASIFICACIONES_DISPONIBLES,
+            sucursales_seleccionadas=sucursales_seleccionadas,
+            clasificacion_seleccionada=clasificacion_seleccionada,
+            orden_seleccionado=orden_seleccionado
         )
     except Exception as e:
         print(f"Error en la ruta home: {e}") 
-        return f"<h1>Error Crítico en la App</h1><p>{str(e)}</p>", 500
+        # Intentar renderizar la plantilla incluso con error para mostrar interfaz
+        try:
+             return render_template_string(
+                TPL, query=query, detalle="", resultados=[], detalle_rows=[],
+                filtro_stock_checked=is_checked, SUCURSALES_DISPONIBLES=SUCURSALES_DISPONIBLES,
+                CLASIFICACIONES_DISPONIBLES=CLASIFICACIONES_DISPONIBLES,
+                sucursales_seleccionadas=sucursales_seleccionadas,
+                clasificacion_seleccionada=clasificacion_seleccionada,
+                orden_seleccionado=orden_seleccionado,
+                error_message=f"Error al buscar: {str(e)}" # Opcional: mostrar error
+            )
+        except: # Si falla hasta renderizar, mostrar error simple
+            return f"<h1>Error Crítico en la App</h1><p>{str(e)}</p>", 500
 
 
 # --- ruta de API ---
@@ -347,7 +426,7 @@ def api_detalle():
 def debug_db():
     try:
         r1 = q("SELECT COUNT(*) AS c FROM inventario_plain")
-        r2 = q("SELECT COUNT(*) AS c FROM inventario") # Tabla FTS
+        r2 = q("SELECT COUNT(*) AS c FROM inventario") 
         r3 = q("SELECT name FROM sqlite_master WHERE type='table' AND name='inventario'")
         return jsonify({
             "filas_en_tabla_datos_plain": r1[0]["c"] if r1 else -1,
