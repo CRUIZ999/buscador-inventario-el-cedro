@@ -23,22 +23,17 @@ def q(query, params=()):
         print(f"Error en la base de datos: {e}")
         return []
 
-def build_fts_query(user_q: str) -> str:
-    # Prepara la consulta para FTS5
-    tokens = [t.strip() for t in user_q.split() if t.strip()]
-    if not tokens:
-        return ""
-    # Usa prefijos (*) para buscar palabras que empiecen con...
-    return " ".join(f"{re.escape(t)}*" for t in tokens)
-
 # --- Función para resaltar ---
 def highlight_term(text, term):
     """Resalta (con <mark>) todas las ocurrencias de 'term' en 'text', ignorando mayúsculas."""
     if not term:
         return text
     try:
+        # Usa regex para encontrar todas las ocurrencias ignorando mayúsculas/minúsculas
+        # y las envuelve en <mark>...</mark>
         return re.sub(f'({re.escape(term)})', r'<mark>\1</mark>', text, flags=re.IGNORECASE)
     except re.error:
+        # Si el término de búsqueda causa un error de regex, devuelve el texto original
         return text
 
 
@@ -55,7 +50,7 @@ TPL = """
       --gris:#475569; --bg:#f5f8ff;
       --rojo: #dc2626;
       --naranja: #f97316;
-      --amarillo-resaltar: #fef08a;
+      --amarillo-resaltar: #fef08a; /* yellow-200 */
     }
     *{box-sizing:border-box}
     body{margin:0;background:var(--bg);font-family:Segoe UI,system-ui,Arial,sans-serif}
@@ -96,8 +91,10 @@ TPL = """
     .item-desc .badge{color:#0f172a}
     
     .item-desc mark { 
-      background-color: var(--amarillo-resaltar); padding: 0 2px; 
-      border-radius: 3px; color: #1e293b; 
+      background-color: var(--amarillo-resaltar); 
+      padding: 0 2px; 
+      border-radius: 3px;
+      color: #1e293b; /* slate-800 */
     }
     
     .stock-badge { flex-shrink: 0; font-weight: 700; color: var(--azul); padding-left: 15px; }
@@ -120,11 +117,18 @@ TPL = """
     }
     
     .spinner {
-      border: 4px solid rgba(0, 0, 0, 0.1); width: 36px; height: 36px;
-      border-radius: 50%; border-left-color: var(--azul);
-      animation: spin 1s ease infinite; margin: 10px auto; 
+      border: 4px solid rgba(0, 0, 0, 0.1);
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      border-left-color: var(--azul);
+      animation: spin 1s ease infinite;
+      margin: 10px auto; /* Centrar el spinner */
     }
-    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
   </style>
 </head>
 <body>
@@ -138,12 +142,23 @@ TPL = """
     <table class="tabla-detalle">
       <thead>
         <tr id="detalle-thead">
-          <th>SUCURSALES</th><th>HI</th><th>EX</th><th>MT</th><th>SA</th><th>ADE</th>
+          <th>SUCURSALES</th>
+          <th>HI</th>
+          <th>EX</th>
+          <th>MT</th>
+          <th>SA</th>
+          <th>ADE</th>
         </tr>
       </thead>
       <tbody id="detalle-tbody">
-        <tr><td>EXISTENCIAS</td><td colspan="5">Selecciona un producto</td></tr>
-        <tr><td>CLASIFICACION</td><td colspan="5">-</td></tr>
+        <tr>
+            <td>EXISTENCIAS</td>
+            <td colspan="5">Selecciona un producto</td>
+        </tr>
+        <tr>
+            <td>CLASIFICACION</td>
+            <td colspan="5">-</td>
+        </tr>
       </tbody>
     </table>
     
@@ -154,7 +169,8 @@ TPL = """
     
     <div class="filter-box">
       <input type="checkbox" name="filtro_stock" value="on" id="filtro_stock"
-             form="search-form" onchange="this.form.submit()"
+             form="search-form"
+             onchange="this.form.submit()"
              {% if filtro_stock_checked %}checked{% endif %}>
       <label for="filtro_stock">Mostrar solo con existencia</label>
     </div>
@@ -252,31 +268,31 @@ def home():
     
     try:
         if query:
-            fts_query = build_fts_query(query)
-            if fts_query:
-                # --- CAMBIO AQUÍ: Simplificar FTS con JOIN ---
-                params = [fts_query]
-                
-                sql = """
-                    SELECT DISTINCT p.Codigo, p.Descripcion, p.Existencia
-                    FROM inventario_plain p
-                    JOIN inventario f ON p.Codigo = f.Codigo -- Unir con la tabla FTS
-                    WHERE p.Sucursal = 'Global'
-                      AND f.inventario MATCH ? -- Aplicar MATCH en la tabla FTS unida
-                """
-                
-                if filtro_stock == "on":
-                    sql += " AND CAST(p.Existencia AS REAL) > 0"
-                
-                sql += " LIMIT 30"
-                
-                resultados_raw = q(sql, tuple(params)) 
+            like_query = f"%{query}%"
+            
+            # --- CORRECCIÓN: Volver a la búsqueda con LIKE ---
+            sql = """
+                SELECT Codigo, Descripcion, Existencia
+                FROM inventario_plain
+                WHERE (Descripcion LIKE ? OR Codigo LIKE ?)
+                  AND Sucursal = 'Global'
+            """
+            
+            params = [like_query, like_query] # Parámetros iniciales
+            
+            if filtro_stock == "on":
+                sql += " AND CAST(Existencia AS REAL) > 0"
+            
+            sql += " LIMIT 30"
+            
+            resultados_raw = q(sql, tuple(params)) # Ejecutar la consulta
 
-                resultados = []
-                for r in resultados_raw:
-                    res_dict = dict(r) 
-                    res_dict['HighlightedDesc'] = highlight_term(res_dict['Descripcion'], query)
-                    resultados.append(res_dict)
+            # Aplicar resaltado
+            resultados = []
+            for r in resultados_raw:
+                res_dict = dict(r) 
+                res_dict['HighlightedDesc'] = highlight_term(res_dict['Descripcion'], query)
+                resultados.append(res_dict)
 
         return render_template_string(
             TPL,
@@ -309,7 +325,7 @@ def api_detalle():
 def debug_db():
     try:
         r1 = q("SELECT COUNT(*) AS c FROM inventario_plain")
-        r2 = q("SELECT COUNT(*) AS c FROM inventario")
+        r2 = q("SELECT COUNT(*) AS c FROM inventario") # Tabla FTS
         r3 = q("SELECT name FROM sqlite_master WHERE type='table' AND name='inventario'")
         return jsonify({
             "filas_en_tabla_datos_plain": r1[0]["c"] if r1 else -1,
