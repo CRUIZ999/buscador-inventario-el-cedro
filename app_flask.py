@@ -179,7 +179,7 @@ TPL = """
     try {
       const response = await fetch('/api/detalle?nombre=' + encodeURIComponent(nombre));
       if (!response.ok) throw new Error('Error de red');
-      const filas = await response.json(); 
+      const filas = await response.json();
       if (filas.length === 0) {
         tbody.innerHTML = `<tr><td>EXISTENCIAS</td><td colspan="5">No se encontraron detalles</td></tr><tr><td>CLASIFICACION</td><td colspan="5">-</td></tr>`;
         return;
@@ -190,11 +190,11 @@ TPL = """
       let filaExistencias = '<td><b>EXISTENCIAS</b></td>';
       let filaClasificacion = '<td><b>CLASIFICACION</b></td>';
       sucursales.forEach(suc => {
-        const d = datos[suc]; 
-        let claseColor = '', clasificacionTexto = '-', existenciaNum = 0; 
+        const d = datos[suc];
+        let claseColor = '', clasificacionTexto = '-', existenciaNum = 0;
         if (d) {
           existenciaNum = parseInt(d.Existencia);
-          if (d.Clasificacion) clasificacionTexto = d.Clasificacion.trim(); 
+          if (d.Clasificacion) clasificacionTexto = d.Clasificacion.trim();
           if (clasificacionTexto === 'C') claseColor = 'stock-c';
           else if (clasificacionTexto === 'Sin Mov' && existenciaNum > 0) claseColor = 'stock-sm';
           if (clasificacionTexto === 'Sin Mov') clasificacionTexto = 'S/M';
@@ -227,12 +227,12 @@ TPL = """
       // Volver a habilitar todos los hidden antes de enviar para mantener filtros
       Array.from(searchForm.querySelectorAll('input[type=hidden]')).forEach(el => el.disabled = false);
       // Quitar los valores de los checkboxes de sucursal del form para que se envíe "vacío"
-      Array.from(searchForm.querySelectorAll('input[name=sucursal]')).forEach(el => el.checked = false); 
+      Array.from(searchForm.querySelectorAll('input[name=sucursal]')).forEach(el => el.checked = false);
       // Resetear dropdowns
       document.getElementById('clasificacion').value = '';
       document.getElementById('orden').value = 'descripcion_asc';
       document.getElementById('filtro_stock').checked = true; // Por defecto
-      searchForm.submit(); 
+      searchForm.submit();
     }
   }
   // Función para enviar el formulario automáticamente al cambiar filtros
@@ -262,9 +262,8 @@ def home():
     clasificacion_seleccionada = request.args.get("clasificacion", "").strip()
     orden_seleccionado = request.args.get("orden", "descripcion_asc")
     
-    # Si no se selecciona ninguna sucursal, asumimos que se quieren todas
-    if not sucursales_seleccionadas:
-        sucursales_seleccionadas = SUCURSALES_DISPONIBLES[:] # Copiar la lista
+    # Si no se selecciona ninguna sucursal explícitamente, no filtramos por sucursal
+    apply_sucursal_filter = bool(sucursales_seleccionadas) 
         
     resultados = []
     
@@ -273,42 +272,51 @@ def home():
             like_query = f"%{query}%"
             params = [like_query, like_query] 
             
-            # --- CORRECCIÓN EN LA LÓGICA SQL ---
-            # Ahora la consulta principal busca productos que coincidan Y que existan
-            # en las sucursales/clasificaciones filtradas (si aplica).
+            # --- CORRECCIÓN FINAL EN LÓGICA SQL (v3) ---
             
-            sql = """
-                SELECT DISTINCT p_global.Codigo, p_global.Descripcion, p_global.Existencia
-                FROM inventario_plain p_global
-                JOIN inventario_plain p_sucursal ON p_global.Codigo = p_sucursal.Codigo 
-                WHERE p_global.Sucursal = 'Global'
-                  AND (p_global.Descripcion LIKE ? OR p_global.Codigo LIKE ?)
-                  AND p_sucursal.Sucursal != 'Global'
-            """
+            # Seleccionamos DISTINCT Codigo, Descripcion, Existencia de la tabla GLOBAL
+            sql_select = "SELECT DISTINCT p_global.Codigo, p_global.Descripcion, p_global.Existencia\n"
+            sql_from = "FROM inventario_plain p_global\n"
+            # Hacemos JOIN con la tabla de sucursales SOLO si necesitamos filtrar por sucursal, clasificación o stock
+            sql_join = ""
+            sql_where = "WHERE p_global.Sucursal = 'Global'\n  AND (p_global.Descripcion LIKE ? OR p_global.Codigo LIKE ?)\n"
             
-            # Aplicar filtro de sucursal directamente en el JOIN/WHERE principal
-            if sucursales_seleccionadas and len(sucursales_seleccionadas) < len(SUCURSALES_DISPONIBLES):
+            # Construir la lista de condiciones WHERE para los filtros
+            where_conditions = []
+            
+            # Añadir filtro de sucursal (ahora se aplica en el JOIN)
+            if apply_sucursal_filter:
+                sql_join = "JOIN inventario_plain p_sucursal ON p_global.Codigo = p_sucursal.Codigo\n"
                 placeholders = ', '.join('?' * len(sucursales_seleccionadas))
-                sql += f" AND p_sucursal.Sucursal IN ({placeholders})"
+                where_conditions.append(f"p_sucursal.Sucursal IN ({placeholders})")
                 params.extend(sucursales_seleccionadas)
 
-            # Aplicar filtro de clasificación
+            # Añadir filtro de clasificación (necesita JOIN si no estaba ya)
             if clasificacion_seleccionada:
-                sql += " AND trim(p_sucursal.Clasificacion) = ?"
+                if not sql_join: # Añadir JOIN si no se hizo por sucursal
+                    sql_join = "JOIN inventario_plain p_sucursal ON p_global.Codigo = p_sucursal.Codigo\n"
+                where_conditions.append("trim(p_sucursal.Clasificacion) = ?")
                 params.append(clasificacion_seleccionada)
 
-            # Aplicar filtro de stock (si checkbox activo O si hay filtros de suc/clasif)
-            if is_checked or sucursales_seleccionadas or clasificacion_seleccionada:
-                 sql += " AND CAST(p_sucursal.Existencia AS REAL) > 0"
+            # Añadir filtro de stock (necesita JOIN si no estaba ya)
+            if is_checked:
+                if not sql_join: # Añadir JOIN si no se hizo por sucursal/clasif
+                    sql_join = "JOIN inventario_plain p_sucursal ON p_global.Codigo = p_sucursal.Codigo\n"
+                where_conditions.append("CAST(p_sucursal.Existencia AS REAL) > 0")
+
+            # Unir todas las condiciones WHERE con AND
+            if where_conditions:
+                sql_where += "  AND " + "\n  AND ".join(where_conditions)
 
             # Ordenación (se aplica sobre los datos de p_global)
             order_clause = ""
             if orden_seleccionado == 'descripcion_asc': order_clause = " ORDER BY p_global.Descripcion ASC"
             elif orden_seleccionado == 'descripcion_desc': order_clause = " ORDER BY p_global.Descripcion DESC"
-            elif orden_seleccionado == 'stock_desc': order_clause = " ORDER BY CAST(p_global.Existencia AS REAL) DESC"
-            elif orden_seleccionado == 'stock_asc': order_clause = " ORDER BY CAST(p_global.Existencia AS REAL) ASC"
+            elif orden_seleccionado == 'stock_desc': order_clause = " ORDER BY CAST(p_global.Existencia AS REAL) DESC, p_global.Descripcion ASC" 
+            elif orden_seleccionado == 'stock_asc': order_clause = " ORDER BY CAST(p_global.Existencia AS REAL) ASC, p_global.Descripcion ASC"  
             
-            sql += order_clause + " LIMIT 30"
+            # Construir consulta final
+            sql = sql_select + sql_from + sql_join + sql_where + order_clause + " LIMIT 30"
             
             resultados_raw = q(sql, tuple(params)) 
 
@@ -320,25 +328,28 @@ def home():
                 res_dict['HighlightedDesc'] = highlight_term(res_dict['Descripcion'], query)
                 resultados.append(res_dict)
 
+        # Determinar sucursales seleccionadas para pasar a la plantilla
+        # (Si no se filtró explícitamente, pasamos lista vacía para que no se marquen checkboxes)
+        displayed_sucursales = sucursales_seleccionadas if apply_sucursal_filter else []
+
         return render_template_string(
             TPL,
             query=query, detalle="", resultados=resultados, detalle_rows=[],
             filtro_stock_checked=is_checked,
             SUCURSALES_DISPONIBLES=SUCURSALES_DISPONIBLES,
             CLASIFICACIONES_DISPONIBLES=CLASIFICACIONES_DISPONIBLES,
-            sucursales_seleccionadas=sucursales_seleccionadas,
+            sucursales_seleccionadas=displayed_sucursales, 
             clasificacion_seleccionada=clasificacion_seleccionada,
             orden_seleccionado=orden_seleccionado
         )
     except Exception as e:
         print(f"Error en la ruta home: {e}") 
-        # Intentar renderizar plantilla incluso con error
         try:
              return render_template_string(
                 TPL, query=query, detalle="", resultados=[], detalle_rows=[],
                 filtro_stock_checked=is_checked, SUCURSALES_DISPONIBLES=SUCURSALES_DISPONIBLES,
                 CLASIFICACIONES_DISPONIBLES=CLASIFICACIONES_DISPONIBLES,
-                sucursales_seleccionadas=sucursales_seleccionadas,
+                sucursales_seleccionadas=(sucursales_seleccionadas if apply_sucursal_filter else []),
                 clasificacion_seleccionada=clasificacion_seleccionada,
                 orden_seleccionado=orden_seleccionado,
                 error_message=f"Error al buscar: {str(e)}"
