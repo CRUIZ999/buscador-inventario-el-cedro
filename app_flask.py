@@ -52,60 +52,59 @@ TPL = """
     }
     *{box-sizing:border-box}
     body{margin:0;background:var(--bg);font-family:Segoe UI,system-ui,Arial,sans-serif}
-    header{ background:linear-gradient(90deg,var(--azul),var(--azul-2)); color:#fff; height: 60px; padding: 0 28px; display: flex; align-items: center; font-weight:700; font-size:20px; box-shadow:0 2px 6px rgba(0,0,0,.18); position: sticky; top: 0; z-index: 20; }
-    .wrap{max-width:1100px;margin:32px auto;background:#fff;border-radius:12px;padding:22px 28px;box-shadow:0 6px 14px rgba(0,0,0,.08)}
-    h3{margin:6px 0 14px 0;color:var(--azul)}
-    table{width:100%;border-collapse:collapse;margin-top:6px}
-    th{background:var(--azul-claro);color:var(--azul);text-align:left;padding:10px}
-    td{padding:10px;border-bottom:1px solid var(--gris-claro)}
-    .tabla-detalle th, .tabla-detalle td { text-align: center; }
+    header{ background:linear-gradient(90deg,var(--azul),var(--azul-2)); color:#fff; height: 50px; /* Reducido */ padding: 0 28px; display: flex; align-items: center; font-weight:700; font-size:18px; /* Reducido */ box-shadow:0 2px 6px rgba(0,0,0,.18); position: sticky; top: 0; z-index: 20; }
+    .wrap{max-width:1100px;margin:25px auto; /* Reducido */ background:#fff;border-radius:12px;padding:22px 28px;box-shadow:0 6px 14px rgba(0,0,0,.08)}
+    h3{margin:0 0 10px 0; /* Reducido */ color:var(--azul)}
+    table{width:100%;border-collapse:collapse;margin-top:4px; /* Reducido */}
+    th{background:var(--azul-claro);color:var(--azul);text-align:left;padding:8px 10px; /* Reducido */}
+    td{padding:8px 10px; /* Reducido */ border-bottom:1px solid var(--gris-claro)}
+    .tabla-detalle th, .tabla-detalle td { text-align: center; font-size: 0.9em; /* Reducido */}
     .tabla-detalle th:first-child, .tabla-detalle td:first-child { text-align: left; font-weight: 700; color: var(--azul); }
     .stock-sm { color: var(--rojo); font-weight: 700; }
     .stock-c { color: var(--naranja); font-weight: 700; }
     #detalle-tbody tr:hover { background-color: #f8faff; }
 
     .search-container { position: relative; flex: 1; }
-    .search { display:flex; gap:12px; margin-top:18px; }
-    .search input{ flex:1; padding:12px 14px; border:1px solid #cbd5e1; border-radius:8px; font-size:16px; padding-right: 35px; }
-    .clear-search { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; font-size: 20px; color: var(--gris); cursor: pointer; padding: 0 5px; display: none; }
+    .search { display:flex; gap:10px; /* Reducido */ margin-top:12px; /* Reducido */ }
+    .search input{ flex:1; padding:10px 14px; /* Reducido */ border:1px solid #cbd5e1; border-radius:8px; font-size:15px; /* Reducido */ padding-right: 35px; }
+    .clear-search { position: absolute; right: 5px; /* Ajustado */ top: 50%; transform: translateY(-50%); background: none; border: none; font-size: 18px; /* Reducido */ color: var(--gris); cursor: pointer; padding: 0 5px; display: none; }
     .search input:not(:placeholder-shown) + .clear-search { display: block; }
 
-    .btn{background:var(--azul);color:#fff;border:none;border-radius:8px;padding:12px 18px;font-size:16px;cursor:pointer}
+    .btn{background:var(--azul);color:#fff;border:none;border-radius:8px;padding:10px 15px; /* Reducido */ font-size:15px; /* Reducido */ cursor:pointer}
     .btn:hover{background:var(--azul-2)}
     .btn:disabled{background:var(--gris);cursor:not-allowed}
 
-    .results-list { margin-top: 20px; }
-    .item{ display: flex; justify-content: space-between; align-items: center; padding: 12px 15px; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 10px; background-color: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.05); cursor: pointer; transition: background-color 0.2s ease, box-shadow 0.2s ease; }
+    .results-list { margin-top: 15px; /* Reducido */ }
+    .item{ display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; /* Reducido */ border: 1px solid #e2e8f0; border-radius: 6px; /* Reducido */ margin-bottom: 8px; /* Reducido */ background-color: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.04); cursor: pointer; transition: background-color 0.2s ease, box-shadow 0.2s ease; }
     .item-desc { flex-grow: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-right: 10px;}
-    .item-desc b{ color:#0f172a; font-weight: 600; }
-    .item-desc .description-text { color: var(--gris); margin-left: 8px; font-size: 0.95em; }
+    .item-desc b{ color:#0f172a; font-weight: 600; font-size: 0.95em; /* Reducido */}
+    .item-desc .description-text { color: var(--gris); margin-left: 8px; font-size: 0.9em; /* Reducido */}
     .item-desc mark { background-color: var(--amarillo-resaltar); padding: 0 2px; border-radius: 3px; color: #1e293b; }
-    .stock-badge { flex-shrink: 0; font-weight: 700; color: var(--azul); padding-left: 15px; display: inline-flex; align-items: center; gap: 5px; }
-    .item:hover { background-color: var(--azul-claro); box-shadow: 0 2px 5px rgba(0,0,0,.08); }
+    .stock-badge { flex-shrink: 0; font-weight: 600; /* Reducido */ color: var(--azul); padding-left: 15px; display: inline-flex; align-items: center; gap: 4px; /* Reducido */ font-size: 0.9em; /* Reducido */}
+    .item:hover { background-color: var(--azul-claro); box-shadow: 0 2px 4px rgba(0,0,0,.06); }
 
-    .filters-container { display: flex; justify-content: space-between; align-items: center; gap: 25px; margin-top: 20px; padding: 15px; border: 1px solid var(--gris-claro); border-radius: 8px; background-color: #fcfdff; flex-wrap: wrap; }
-    .filter-group { display: flex; flex-direction: column; gap: 5px; }
-    .filter-group > label { font-weight: 600; color: var(--azul); margin-bottom: 5px; font-size: 14px; }
-    .sucursal-filters { display: flex; gap: 15px; align-items: center; flex-wrap: wrap; }
-    .sucursal-filters label { font-weight: normal; color: var(--gris); margin: 0; font-size: 14px; cursor: pointer; display: inline-flex; align-items: center; }
-    .sucursal-filters input { margin-right: 5px; vertical-align: middle; cursor: pointer;}
-    .filter-box { margin-top: 0; text-align: right; color: var(--gris); flex-grow: 1;}
-    .filter-box input { margin-right: 6px; vertical-align: middle; }
+    .filters-container { display: flex; justify-content: space-between; align-items: center; gap: 15px; /* Reducido */ margin-top: 12px; /* Reducido */ padding: 10px 15px; /* Reducido */ border: 1px solid var(--gris-claro); border-radius: 6px; /* Reducido */ background-color: #fcfdff; flex-wrap: wrap;}
+    .filter-group { display: flex; flex-direction: column; gap: 4px; /* Reducido */}
+    .filter-group > label { font-weight: 600; color: var(--azul); margin-bottom: 3px; font-size: 13px; /* Reducido */}
+    .sucursal-filters { display: flex; gap: 12px; /* Reducido */ align-items: center; flex-wrap: wrap; }
+    .sucursal-filters label { font-weight: normal; color: var(--gris); margin: 0; font-size: 13px; /* Reducido */ cursor: pointer; display: inline-flex; align-items: center; }
+    .sucursal-filters input { margin-right: 4px; vertical-align: middle; cursor: pointer;}
+    .filter-box { margin-top: 0; text-align: right; color: var(--gris); flex-grow: 1; font-size: 13px; /* Reducido */}
+    .filter-box input { margin-right: 4px; /* Reducido */ vertical-align: middle; }
     .filter-box label { vertical-align: middle; cursor: pointer; }
 
-    /* Estilos para la guía de clasificación */
     .clasificacion-guia {
-        font-size: 0.8em; color: var(--gris); padding: 10px 15px;
-        margin-top: 15px; border-top: 1px solid var(--gris-claro); line-height: 1.4;
+        font-size: 0.75em; /* Más pequeño */ color: var(--gris); padding: 8px 15px; /* Reducido */
+        margin-top: 10px; /* Reducido */ border-top: 1px solid var(--gris-claro); line-height: 1.3; /* Reducido */
     }
     .clasificacion-guia span { font-weight: 600; }
     .clasificacion-guia .guia-c { color: var(--naranja); }
     .clasificacion-guia .guia-sm { color: var(--rojo); }
 
-    .nores{background:#fff7ed;color:#92400e;padding:15px;border-radius:8px;margin-top:20px; text-align: center;}
-    .foot{margin:36px 0 6px 0;text-align:center;color:var(--gris);font-size:14px}
-    .sticky-details { position: sticky; top: 60px; background: #fff; z-index: 10; margin: -22px -28px 0 -28px; padding: 22px 28px 0px 28px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); }
-    .spinner { border: 4px solid rgba(0, 0, 0, 0.1); width: 36px; height: 36px; border-radius: 50%; border-left-color: var(--azul); animation: spin 1s ease infinite; margin: 10px auto; }
+    .nores{background:#fff7ed;color:#92400e;padding:12px; /* Reducido */ border-radius:8px;margin-top:15px; /* Reducido */ text-align: center;}
+    .foot{margin:30px 0 6px 0; /* Reducido */ text-align:center;color:var(--gris);font-size:13px; /* Reducido */}
+    .sticky-details { position: sticky; top: 50px; /* Ajustado a nueva altura header */ background: #fff; z-index: 10; margin: -22px -28px 0 -28px; padding: 18px 28px 0px 28px; /* Reducido */ box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); }
+    .spinner { border: 3px solid rgba(0, 0, 0, 0.1); /* Reducido */ width: 28px; /* Reducido */ height: 28px; /* Reducido */ border-radius: 50%; border-left-color: var(--azul); animation: spin 1s ease infinite; margin: 8px auto; /* Reducido */}
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
   </style>
 </head>
@@ -137,17 +136,13 @@ TPL = """
           {% endfor %}
         </div>
       </div>
-      {# #}
       <div class="filter-box">
         <input type="checkbox" name="filtro_stock" value="on" id="filtro_stock" form="search-form" onchange="submitFormOnChange()" {% if filtro_stock_checked %}checked{% endif %}>
         <label for="filtro_stock">Solo con existencia</label>
       </div>
     </div>
     <div class="clasificacion-guia">
-      <span>A:</span> de 6 a 12 meses vendidos<br>
-      <span>B:</span> de 3 a 5 meses vendidos<br>
-      <span class="guia-c">C:</span> <span class="guia-c">de 1 a 2 meses vendidos</span><br>
-      <span class="guia-sm">Sin Mov:</span> <span class="guia-sm">ningún mes con venta (>0)</span>
+      <span>A:</span> 6-12m vendidos | <span>B:</span> 3-5m vendidos | <span class="guia-c">C:</span> 1-2m vendidos | <span class="guia-sm">S/M:</span> Sin Venta (>0)
     </div>
   </div> <div class="results-list">
       {% if resultados %}
@@ -257,50 +252,36 @@ def home():
     try:
         if query:
             like_query = f"%{query}%"
-            # Parametros iniciales solo para el LIKE
-            params = [like_query, like_query] 
+            params = [] # Reiniciar params para la subconsulta primero
             
-            sql_select = "SELECT DISTINCT p_global.Codigo, p_global.Descripcion, p_global.Existencia\n"
-            sql_from = "FROM inventario_plain p_global\n"
-            sql_join = ""
-            sql_where = "WHERE p_global.Sucursal = 'Global'\n  AND (p_global.Descripcion LIKE ? OR p_global.Codigo LIKE ?)\n"
-            
-            where_conditions = []
-            subquery_params = [] # Parámetros para la subconsulta EXISTS
+            # --- Lógica SQL estable ---
+            sub_sql = "SELECT DISTINCT p_sucursal.Codigo FROM inventario_plain p_sucursal WHERE p_sucursal.Sucursal != 'Global'"
+            sub_where_conditions = []
 
-            # --- Lógica de filtros SIN ordenación ---
             if apply_sucursal_filter:
-                if not sql_join: sql_join = "JOIN inventario_plain p_sucursal ON p_global.Codigo = p_sucursal.Codigo\n"
                 placeholders = ', '.join('?' * len(sucursales_for_query))
-                where_conditions.append(f"p_sucursal.Sucursal IN ({placeholders})")
-                subquery_params.extend(sucursales_for_query) # Añadir a params de subconsulta
+                sub_where_conditions.append(f"p_sucursal.Sucursal IN ({placeholders})")
+                params.extend(sucursales_for_query)
             
             if is_checked:
-                if not sql_join: sql_join = "JOIN inventario_plain p_sucursal ON p_global.Codigo = p_sucursal.Codigo\n"
-                where_conditions.append("CAST(p_sucursal.Existencia AS REAL) > 0")
-                where_conditions.append("p_sucursal.Sucursal != 'Global'")
+                sub_where_conditions.append("CAST(p_sucursal.Existencia AS REAL) > 0")
 
-            # Si hay filtros de sucursal o stock, construimos la subconsulta EXISTS
-            if where_conditions:
-                sub_sql = f"""
-                  AND EXISTS (
-                      SELECT 1 
-                      FROM inventario_plain p_sub
-                      WHERE p_sub.Codigo = p_global.Codigo 
-                        AND {' AND '.join(where_conditions)}
-                  )
-                """
-                sql_where += sub_sql
-                params.extend(subquery_params) # Añadir params de subconsulta a los params principales
+            if sub_where_conditions:
+                 sub_sql += " AND " + " AND ".join(sub_where_conditions)
 
-
-            # Orden por defecto (alfabético por descripción)
-            order_clause = " ORDER BY p_global.Descripcion COLLATE NOCASE ASC" 
-
-            sql = sql_select + sql_from + sql_join + sql_where + order_clause + " LIMIT 30"
+            sql = f"""
+                SELECT p_global.Codigo, p_global.Descripcion, p_global.Existencia
+                FROM inventario_plain p_global
+                WHERE p_global.Sucursal = 'Global'
+                  AND (p_global.Descripcion LIKE ? OR p_global.Codigo LIKE ?)
+                  AND p_global.Codigo IN ({sub_sql}) 
+                ORDER BY p_global.Descripcion COLLATE NOCASE ASC 
+                LIMIT 30
+            """
             
-            # Los params ahora se construyen correctamente
-            resultados_raw = q(sql, tuple(params)) 
+            final_params = [like_query, like_query] + params
+            
+            resultados_raw = q(sql, tuple(final_params)) 
 
             resultados = []
             for r in resultados_raw:
