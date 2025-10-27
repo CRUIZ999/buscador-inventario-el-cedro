@@ -6,7 +6,7 @@ import os
 
 app = Flask(__name__)
 
-DB_PATH = "inventario_el_cedro.db"
+DB_PATH = "inventario_el_ced_ro.db"
 
 
 # ------------------ utilidades DB ------------------
@@ -36,6 +36,7 @@ def highlight_term(text, term):
 
 
 # ------------------ plantilla HTML ------------------
+# (El TPL no cambia, se omite por brevedad)
 TPL = """
 <!doctype html>
 <html lang="es">
@@ -243,12 +244,14 @@ def home():
     is_checked = (filtro_stock == "on")
     
     sucursales_seleccionadas = request.args.getlist("sucursal") 
-    # Se elimina clasificacion_seleccionada
-    orden_seleccionado = request.args.get("orden", "descripcion_asc")
+    orden_seleccionado = request.args.get("orden", "descripcion_asc") # Default a A-Z
     
     apply_sucursal_filter = bool(sucursales_seleccionadas) 
-    if not sucursales_seleccionadas:
-        sucursales_seleccionadas = SUCURSALES_DISPONIBLES[:] 
+    # Si no se selecciona ninguna sucursal explícitamente en la URL Y NO es la carga inicial,
+    # significa que queremos todas, así que llenamos la lista.
+    # Excluimos la carga inicial (sin 'q') para que los checkboxes empiecen desmarcados.
+    if not apply_sucursal_filter and 'sucursal' not in request.args and query:
+        sucursales_seleccionadas = SUCURSALES_DISPONIBLES[:]
         
     resultados = []
     
@@ -257,47 +260,55 @@ def home():
             like_query = f"%{query}%"
             params = [like_query, like_query] 
             
-            # --- CORRECCIÓN FINAL (v4): Lógica SQL simplificada sin Clasificación ---
+            # --- CORRECCIÓN FINAL LÓGICA ORDENACIÓN (v5) ---
             
             sql_select = "SELECT DISTINCT p_global.Codigo, p_global.Descripcion, p_global.Existencia\n"
             sql_from = "FROM inventario_plain p_global\n"
-            # Hacemos JOIN SOLO si necesitamos filtrar por sucursal o stock
+            # Hacemos JOIN con la tabla de sucursales SOLO si necesitamos filtrar por sucursal o stock
             sql_join = ""
             sql_where = "WHERE p_global.Sucursal = 'Global'\n  AND (p_global.Descripcion LIKE ? OR p_global.Codigo LIKE ?)\n"
             
             where_conditions = []
             
             # Añadir filtro de sucursal (necesita JOIN)
+            # Solo aplicamos si se seleccionaron *algunas* sucursales (no todas por defecto)
             if apply_sucursal_filter:
-                if not sql_join: # Añadir JOIN si no existe
+                if not sql_join:
                     sql_join = "JOIN inventario_plain p_sucursal ON p_global.Codigo = p_sucursal.Codigo\n"
                 placeholders = ', '.join('?' * len(sucursales_seleccionadas))
                 where_conditions.append(f"p_sucursal.Sucursal IN ({placeholders})")
                 params.extend(sucursales_seleccionadas)
 
-            # Añadir filtro de stock (necesita JOIN si no existe)
+            # Añadir filtro de stock (necesita JOIN si no estaba ya)
             if is_checked:
-                if not sql_join: # Añadir JOIN si no se hizo por sucursal
+                if not sql_join:
                     sql_join = "JOIN inventario_plain p_sucursal ON p_global.Codigo = p_sucursal.Codigo\n"
                 # Ahora la condición de stock se aplica SIEMPRE en p_sucursal si hay JOIN
+                # y el checkbox está activo
                 where_conditions.append("CAST(p_sucursal.Existencia AS REAL) > 0")
-            
-            # Si hay JOIN pero NO está activo el filtro de stock (is_checked=False), 
-            # debemos asegurarnos de que el JOIN incluya p_sucursal != 'Global'
-            if sql_join and not is_checked and not apply_sucursal_filter:
-                 where_conditions.append("p_sucursal.Sucursal != 'Global'")
+                # También aseguramos que el JOIN solo considere sucursales reales si filtramos por stock
+                # Esto es redundante si ya filtramos por sucursal específica, pero no hace daño
+                where_conditions.append("p_sucursal.Sucursal != 'Global'")
 
 
+            # Unir condiciones WHERE
             if where_conditions:
                 sql_where += "  AND " + "\n  AND ".join(where_conditions)
 
-            # Ordenación
+            # Ordenación - ¡CORREGIDO! Aseguramos que se aplique correctamente
             order_clause = ""
-            if orden_seleccionado == 'descripcion_asc': order_clause = " ORDER BY p_global.Descripcion ASC"
-            elif orden_seleccionado == 'descripcion_desc': order_clause = " ORDER BY p_global.Descripcion DESC"
-            elif orden_seleccionado == 'stock_desc': order_clause = " ORDER BY CAST(p_global.Existencia AS REAL) DESC, p_global.Descripcion ASC" 
-            elif orden_seleccionado == 'stock_asc': order_clause = " ORDER BY CAST(p_global.Existencia AS REAL) ASC, p_global.Descripcion ASC"  
-            
+            if orden_seleccionado == 'descripcion_asc': 
+                order_clause = " ORDER BY p_global.Descripcion COLLATE NOCASE ASC" # COLLATE NOCASE para orden insensible
+            elif orden_seleccionado == 'descripcion_desc': 
+                order_clause = " ORDER BY p_global.Descripcion COLLATE NOCASE DESC"
+            elif orden_seleccionado == 'stock_desc': 
+                # Usamos INTEGER para ordenar por entero
+                order_clause = " ORDER BY CAST(p_global.Existencia AS INTEGER) DESC, p_global.Descripcion COLLATE NOCASE ASC" 
+            elif orden_seleccionado == 'stock_asc': 
+                order_clause = " ORDER BY CAST(p_global.Existencia AS INTEGER) ASC, p_global.Descripcion COLLATE NOCASE ASC"  
+            else: # Default por si acaso
+                 order_clause = " ORDER BY p_global.Descripcion COLLATE NOCASE ASC"
+
             sql = sql_select + sql_from + sql_join + sql_where + order_clause + " LIMIT 30"
             
             resultados_raw = q(sql, tuple(params)) 
@@ -310,7 +321,9 @@ def home():
                 res_dict['HighlightedDesc'] = highlight_term(res_dict['Descripcion'], query)
                 resultados.append(res_dict)
 
-        displayed_sucursales = sucursales_seleccionadas if apply_sucursal_filter else []
+        # Determinar sucursales seleccionadas para pasar a la plantilla
+        displayed_sucursales = sucursales_seleccionadas if apply_sucursal_filter or 'sucursal' in request.args else []
+
 
         return render_template_string(
             TPL,
@@ -325,11 +338,12 @@ def home():
     except Exception as e:
         print(f"Error en la ruta home: {e}") 
         try:
+             # Intenta renderizar incluso con error, mostrando los filtros seleccionados
+             displayed_sucursales_on_error = sucursales_seleccionadas if apply_sucursal_filter or 'sucursal' in request.args else []
              return render_template_string(
                 TPL, query=query, detalle="", resultados=[], detalle_rows=[],
                 filtro_stock_checked=is_checked, SUCURSALES_DISPONIBLES=SUCURSALES_DISPONIBLES,
-                sucursales_seleccionadas=(sucursales_seleccionadas if apply_sucursal_filter else []),
-                # Se elimina clasificacion_seleccionada
+                sucursales_seleccionadas=displayed_sucursales_on_error,
                 orden_seleccionado=orden_seleccionado,
                 error_message=f"Error al buscar: {str(e)}"
             )
