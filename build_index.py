@@ -41,18 +41,17 @@ def main():
 
     if not os.path.exists(EXCEL_PATH):
         print(f"❌ No se encontró el archivo Excel en: {EXCEL_PATH}")
-        # Ya no usamos input(), salimos directamente si hay error
         return # Termina el script
 
     print("\n[1/2] Construyendo índice (SQLite + tablas normal + FTS5)...")
 
     try:
-        xls = pd.ExcelFile(EXCEL_PATH)
+        xls = pd.ExcelFile(EXCEL_PATH, engine='openpyxl') # Especificar motor aquí también por si acaso
         hojas = [h for h in xls.sheet_names if h.lower().startswith("class")]
         print(f"Hojas detectadas: {', '.join(hojas)}")
     except Exception as e:
         print(f"❌ Error al intentar abrir o leer las hojas del archivo Excel: {e}")
-        print("   Asegúrate de que el archivo descargado sea un Excel válido.")
+        print("   Asegúrate de que el archivo descargado sea un Excel válido y que openpyxl esté en requirements.txt.")
         return # Termina el script
 
     frames = []
@@ -61,7 +60,9 @@ def main():
         print(f" - Leyendo hoja: {hoja} ...")
         try:
             # Asume que los encabezados están en la fila 9 (índice 8)
-            df = pd.read_excel(EXCEL_PATH, sheet_name=hoja, header=8)
+            # --- CORRECCIÓN AQUÍ ---
+            df = pd.read_excel(EXCEL_PATH, sheet_name=hoja, header=8, engine='openpyxl')
+            # -----------------------
             df.columns = normalize_columns_to_text(df.columns)
 
             col_codigo, col_desc, col_inv, col_clas, missing = detect_columns(df)
@@ -120,7 +121,7 @@ def main():
     cur.execute("CREATE INDEX IF NOT EXISTS idx_inv_clas ON inventario_plain(Clasificacion);")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_inv_suc  ON inventario_plain(Sucursal);")
 
-    # ---- Tabla FTS5 para búsquedas futuras ----
+    # ---- Tabla FTS5 ----
     try:
         cur.execute("DROP TABLE IF EXISTS inventario;")
         cur.execute("""
@@ -140,7 +141,6 @@ def main():
 
     print("✅ Base de datos creada correctamente (tabla normal + FTS).")
     print("✅ Índice creado con éxito.")
-    # Las líneas input() han sido eliminadas para que funcione en Render
 
 if __name__ == "__main__":
     main()
