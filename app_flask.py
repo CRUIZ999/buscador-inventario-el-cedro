@@ -38,7 +38,7 @@ def highlight_term(text, term):
 
 
 # ------------------ plantilla HTML ------------------
-# (El TPL no cambia, se omite por brevedad, usa el de las respuestas anteriores)
+# (El TPL no cambia, se omite por brevedad)
 TPL = """
 <!doctype html>
 <html lang="es">
@@ -188,7 +188,6 @@ TPL = """
         if (d) {
           existenciaNum = parseInt(d.Existencia);
           if (d.Clasificacion) clasificacionTexto = d.Clasificacion.trim();
-          // Solo coloreamos 'C' o 'S/M'
           if (clasificacionTexto === 'C') claseColor = 'stock-c';
           else if (clasificacionTexto === 'Sin Mov' && existenciaNum > 0) claseColor = 'stock-sm';
           if (clasificacionTexto === 'Sin Mov') clasificacionTexto = 'S/M';
@@ -219,7 +218,6 @@ TPL = """
       searchInput.value = '';
       Array.from(searchForm.querySelectorAll('input[type=hidden]')).forEach(el => el.disabled = false);
       Array.from(searchForm.querySelectorAll('input[name=sucursal]')).forEach(el => el.checked = false);
-      // Se elimina la línea de clasificación
       document.getElementById('orden').value = 'descripcion_asc';
       document.getElementById('filtro_stock').checked = true;
       searchForm.submit();
@@ -247,9 +245,7 @@ def home():
     sucursales_seleccionadas = request.args.getlist("sucursal") 
     orden_seleccionado = request.args.get("orden", "descripcion_asc")
     
-    # Determinar si el usuario seleccionó sucursales específicas
     apply_sucursal_filter = bool(sucursales_seleccionadas) 
-    # Lista de sucursales a usar en el query (puede ser todas o las seleccionadas)
     sucursales_for_query = sucursales_seleccionadas if apply_sucursal_filter else SUCURSALES_DISPONIBLES
         
     resultados = []
@@ -259,49 +255,45 @@ def home():
             like_query = f"%{query}%"
             params = [like_query, like_query] 
             
-            # --- CORRECCIÓN LÓGICA SQL v6 ---
-            # La estructura ahora es:
-            # 1. Encontrar Códigos de productos que coincidan con el texto de búsqueda (LIKE en Global)
-            # 2. De esos códigos, verificar cuáles existen en las sucursales deseadas Y cumplen el filtro de stock (si aplica)
-            # 3. Obtener los detalles (Desc, Stock Global) de los códigos filtrados
-            # 4. Ordenar
+            # --- CORRECCIÓN LÓGICA SQL v6 FINAL ---
+            # Se reestructura para claridad y corrección
             
-            sql_select = "SELECT p_global.Codigo, p_global.Descripcion, p_global.Existencia\n"
-            sql_from = "FROM inventario_plain p_global\n"
+            # Parte 1: Encontrar los Códigos que cumplen los filtros
+            # Se usa una subconsulta o CTE (Common Table Expression)
             
-            # WHERE base para encontrar productos que coincidan con el texto
-            sql_where = "WHERE p_global.Sucursal = 'Global'\n  AND (p_global.Descripcion LIKE ? OR p_global.Codigo LIKE ?)\n"
+            sql_base = """
+                WITH ValidCodigos AS (
+                    SELECT DISTINCT p_sucursal.Codigo
+                    FROM inventario_plain p_sucursal
+                    WHERE p_sucursal.Sucursal != 'Global'
+            """
             
-            # Subconsulta EXISTS para aplicar filtros de sucursal y stock
-            # Solo la añadimos si hay filtros activos (stock, o sucursales específicas)
-            if is_checked or apply_sucursal_filter:
-                subquery_exists = """
-                  AND EXISTS (
-                      SELECT 1 
-                      FROM inventario_plain p_sucursal 
-                      WHERE p_sucursal.Codigo = p_global.Codigo 
-                        AND p_sucursal.Sucursal != 'Global' 
-                """
-                subquery_conditions = []
+            where_conditions = []
+            
+            # Añadir filtro de sucursal a la subconsulta
+            if apply_sucursal_filter:
+                placeholders = ', '.join('?' * len(sucursales_for_query))
+                where_conditions.append(f"p_sucursal.Sucursal IN ({placeholders})")
+                params.extend(sucursales_for_query)
+            
+            # Añadir filtro de stock a la subconsulta si está chequeado
+            if is_checked:
+                where_conditions.append("CAST(p_sucursal.Existencia AS REAL) > 0")
 
-                # Añadir filtro de sucursal si se seleccionaron algunas
-                if apply_sucursal_filter:
-                    placeholders = ', '.join('?' * len(sucursales_for_query))
-                    subquery_conditions.append(f"p_sucursal.Sucursal IN ({placeholders})")
-                    params.extend(sucursales_for_query)
-                
-                # Añadir filtro de stock si está chequeado
-                if is_checked:
-                    subquery_conditions.append("CAST(p_sucursal.Existencia AS REAL) > 0")
-
-                # Unir condiciones de la subconsulta
-                if subquery_conditions:
-                    subquery_exists += " AND " + " AND ".join(subquery_conditions)
-                
-                subquery_exists += " )\n" # Cerrar EXISTS
-                sql_where += subquery_exists # Añadir al WHERE principal
-
-            # Ordenación (siempre se aplica)
+            if where_conditions:
+                 sql_base += " AND " + " AND ".join(where_conditions)
+                 
+            sql_base += """
+                )
+                SELECT p_global.Codigo, p_global.Descripcion, p_global.Existencia
+                FROM inventario_plain p_global
+                WHERE p_global.Sucursal = 'Global'
+                  AND (p_global.Descripcion LIKE ? OR p_global.Codigo LIKE ?)
+                  -- Asegurarse de que el producto exista en las sucursales filtradas (si hubo filtros)
+                  AND p_global.Codigo IN (SELECT Codigo FROM ValidCodigos) 
+            """
+            
+            # Ordenación (se aplica sobre los datos de p_global)
             order_clause = ""
             if orden_seleccionado == 'descripcion_asc': order_clause = " ORDER BY p_global.Descripcion COLLATE NOCASE ASC"
             elif orden_seleccionado == 'descripcion_desc': order_clause = " ORDER BY p_global.Descripcion COLLATE NOCASE DESC"
@@ -309,9 +301,12 @@ def home():
             elif orden_seleccionado == 'stock_asc': order_clause = " ORDER BY CAST(p_global.Existencia AS INTEGER) ASC, p_global.Descripcion COLLATE NOCASE ASC"  
             else: order_clause = " ORDER BY p_global.Descripcion COLLATE NOCASE ASC"
 
-            sql = sql_select + sql_from + sql_where + order_clause + " LIMIT 30"
+            sql = sql_base + order_clause + " LIMIT 30"
             
-            resultados_raw = q(sql, tuple(params)) 
+            # Insertar los parámetros de LIKE al inicio
+            final_params = [like_query, like_query] + params[2:] # Excluir los LIKE params iniciales duplicados
+            
+            resultados_raw = q(sql, tuple(final_params)) 
 
             resultados = []
             for r in resultados_raw:
@@ -321,7 +316,7 @@ def home():
                 res_dict['HighlightedDesc'] = highlight_term(res_dict['Descripcion'], query)
                 resultados.append(res_dict)
 
-        # Determinar sucursales seleccionadas para pasar a la plantilla (para marcar checkboxes)
+        # Determinar sucursales seleccionadas para pasar a la plantilla
         displayed_sucursales = sucursales_seleccionadas if apply_sucursal_filter else []
 
         return render_template_string(
