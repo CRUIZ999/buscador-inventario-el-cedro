@@ -47,7 +47,7 @@ TPL = """
   <style>
     :root{
       --azul:#1e40af; --azul-2:#2563eb; --azul-claro:#e8f0ff;
-      --gris:#475569; --bg:#f5f8ff; --gris-claro: #f1f5f9;
+      --gris:#475569; --gris-medio: #94a3b8; --gris-claro: #f1f5f9; --bg:#f5f8ff;
       --rojo: #dc2626; --naranja: #f97316; --amarillo-resaltar: #fef08a;
     }
     *{box-sizing:border-box}
@@ -62,6 +62,7 @@ TPL = """
     .tabla-detalle th:first-child, .tabla-detalle td:first-child { text-align: left; font-weight: 700; color: var(--azul); }
     .stock-sm { color: var(--rojo); font-weight: 700; }
     .stock-c { color: var(--naranja); font-weight: 700; }
+    #detalle-tbody tr:hover { background-color: #f8faff; }
 
     .search-container { position: relative; flex: 1; }
     .search { display:flex; gap:12px; margin-top:18px; }
@@ -73,28 +74,28 @@ TPL = """
     .btn:hover{background:var(--azul-2)}
     .btn:disabled{background:var(--gris);cursor:not-allowed}
 
-    .item{ display: flex; justify-content: space-between; align-items: center; padding: 12px 8px; border-bottom: 1px solid #eef2f7; cursor: pointer; }
+    .results-list { margin-top: 20px; }
+    .item{ display: flex; justify-content: space-between; align-items: center; padding: 12px 15px; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 10px; background-color: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.05); cursor: pointer; transition: background-color 0.2s ease, box-shadow 0.2s ease; }
     .item-desc { flex-grow: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-right: 10px;}
-    .item-desc b{color:#0f172a}
-    .item-desc .badge{color:#0f172a}
+    /* --- CAMBIO: Estilo para el Código (ahora en b) --- */
+    .item-desc b{ color:#0f172a; font-weight: 600; /* Un poco menos grueso que bold */}
+    /* --- CAMBIO: Estilo para la Descripción (ahora en span) --- */
+    .item-desc .description-text { color: var(--gris); margin-left: 8px; /* Espacio después del código */ font-size: 0.95em; }
     .item-desc mark { background-color: var(--amarillo-resaltar); padding: 0 2px; border-radius: 3px; color: #1e293b; }
-    .stock-badge { flex-shrink: 0; font-weight: 700; color: var(--azul); padding-left: 15px; }
-    .item:nth-child(even) { background-color: #f8faff; }
-    .item:hover { background-color: var(--azul-claro); }
+    .stock-badge { flex-shrink: 0; font-weight: 700; color: var(--azul); padding-left: 15px; display: inline-flex; align-items: center; gap: 5px; }
+    .item:hover { background-color: var(--azul-claro); box-shadow: 0 2px 5px rgba(0,0,0,.08); }
 
-    .filters-container { display: flex; justify-content: space-between; align-items: flex-end; gap: 20px; margin-top: 15px; padding-bottom: 15px; border-bottom: 1px solid var(--gris-claro); flex-wrap: wrap;}
+    .filters-container { display: flex; justify-content: space-between; align-items: center; gap: 25px; margin-top: 20px; padding: 15px; border: 1px solid var(--gris-claro); border-radius: 8px; background-color: #fcfdff; flex-wrap: wrap; }
     .filter-group { display: flex; flex-direction: column; gap: 5px; }
-    .filter-group label { font-weight: 600; color: var(--azul); margin-bottom: 3px; font-size: 14px;}
-    /* Se elimina el estilo select ya que no hay */
+    .filter-group > label { font-weight: 600; color: var(--azul); margin-bottom: 5px; font-size: 14px; }
     .sucursal-filters { display: flex; gap: 15px; align-items: center; flex-wrap: wrap; }
-    .sucursal-filters label { font-weight: normal; color: var(--gris); margin: 0; font-size: 14px; cursor: pointer;}
-    .sucursal-filters input { margin-right: 4px; vertical-align: middle; cursor: pointer;}
-
-    .filter-box { margin-top: 12px; text-align: right; color: var(--gris); /* Ajustar margen si es necesario */ flex-grow: 1; /* Ocupar espacio sobrante */}
+    .sucursal-filters label { font-weight: normal; color: var(--gris); margin: 0; font-size: 14px; cursor: pointer; display: inline-flex; align-items: center; }
+    .sucursal-filters input { margin-right: 5px; vertical-align: middle; cursor: pointer;}
+    .filter-box { margin-top: 0; text-align: right; color: var(--gris); flex-grow: 1;}
     .filter-box input { margin-right: 6px; vertical-align: middle; }
     .filter-box label { vertical-align: middle; cursor: pointer; }
 
-    .nores{background:#fff7ed;color:#92400e;padding:10px;border-radius:8px;margin-top:12px}
+    .nores{background:#fff7ed;color:#92400e;padding:15px;border-radius:8px;margin-top:20px; text-align: center;}
     .foot{margin:36px 0 6px 0;text-align:center;color:var(--gris);font-size:14px}
     .sticky-details { position: sticky; top: 60px; background: #fff; z-index: 10; margin: -22px -28px 0 -28px; padding: 22px 28px 12px 28px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); }
     .spinner { border: 4px solid rgba(0, 0, 0, 0.1); width: 36px; height: 36px; border-radius: 50%; border-left-color: var(--azul); animation: spin 1s ease infinite; margin: 10px auto; }
@@ -118,7 +119,6 @@ TPL = """
       <button class="btn" type="submit" id="search-button">Buscar</button>
       {# #}
       {% for suc in SUCURSALES_DISPONIBLES %}<input type="hidden" name="sucursal_{{ suc }}" value="on" {% if suc not in sucursales_seleccionadas %}disabled{% endif %}>{% endfor %}
-      {# #}
       <input type="hidden" name="filtro_stock" value="on" {% if not filtro_stock_checked %}disabled{% endif %}>
     </form>
     <div class="filters-container">
@@ -130,28 +130,30 @@ TPL = """
           {% endfor %}
         </div>
       </div>
-      {# #}
-      {# #}
       <div class="filter-box">
         <input type="checkbox" name="filtro_stock" value="on" id="filtro_stock" form="search-form" onchange="submitFormOnChange()" {% if filtro_stock_checked %}checked{% endif %}>
         <label for="filtro_stock">Solo con existencia</label>
       </div>
     </div>
   </div>
-  {% if resultados %}
-    <div style="margin-top:10px">
-      {% for r in resultados %}
-        <div class="item" onclick="sel('{{ r['Descripcion']|e }}')">
-          <div class="item-desc"><b>{{ r['HighlightedDesc']|safe }}</b> <span class="badge">— {{ r['Codigo'] }}</span></div>
-          <span class="stock-badge">Stock: {{ r['Existencia'] | int }}</span>
-        </div>
-      {% endfor %}
-    </div>
-  {% elif query %}
-    <div class="nores">Sin resultados para "{{ query }}" con los filtros aplicados.</div>
-  {% else %}
-     <div class="nores" style="text-align:center;">Ingresa un término de búsqueda.</div>
-  {% endif %}
+  <div class="results-list">
+      {% if resultados %}
+        {% for r in resultados %}
+          <div class="item" onclick="sel('{{ r['Descripcion']|e }}')">
+            <div class="item-desc">
+              {# --- CAMBIO: Código primero, luego descripción --- #}
+              <b>{{ r['Codigo'] }}</b>
+              <span class="description-text">{{ r['HighlightedDesc']|safe }}</span>
+            </div>
+            <span class="stock-badge">📦 Stock: {{ r['Existencia'] | int }}</span>
+          </div>
+        {% endfor %}
+      {% elif query %}
+        <div class="nores">😟 Sin resultados para "{{ query }}" con los filtros aplicados.</div>
+      {% else %}
+         <div class="nores" style="text-align:center;">Ingresa un término de búsqueda.</div>
+      {% endif %}
+  </div>
 </div>
 <div class="foot">Hecho para uso interno – Inventario consolidado • Ferretería El Cedro</div>
 <script>
@@ -234,7 +236,7 @@ def home():
     is_checked = (filtro_stock == "on")
     
     sucursales_seleccionadas = request.args.getlist("sucursal") 
-    # Se elimina orden_seleccionado
+    # orden_seleccionado eliminado
     
     apply_sucursal_filter = bool(sucursales_seleccionadas) 
     sucursales_for_query = sucursales_seleccionadas if apply_sucursal_filter else SUCURSALES_DISPONIBLES
@@ -245,8 +247,6 @@ def home():
         if query:
             like_query = f"%{query}%"
             params = [like_query, like_query] 
-            
-            # --- CORRECCIÓN FINAL (v7): Lógica SQL sin Ordenación ---
             
             sql_select = "SELECT DISTINCT p_global.Codigo, p_global.Descripcion, p_global.Existencia\n"
             sql_from = "FROM inventario_plain p_global\n"
@@ -269,8 +269,10 @@ def home():
             if where_conditions:
                 sql_where += "  AND " + "\n  AND ".join(where_conditions)
 
-            # Se elimina la cláusula ORDER BY
-            sql = sql_select + sql_from + sql_join + sql_where + " LIMIT 30"
+            # Ordenación por defecto (puedes añadirla aquí si quieres un orden específico siempre)
+            order_clause = " ORDER BY p_global.Descripcion COLLATE NOCASE ASC" 
+
+            sql = sql_select + sql_from + sql_join + sql_where + order_clause + " LIMIT 30"
             
             final_params = [like_query, like_query] + params[2:]
             
@@ -292,7 +294,7 @@ def home():
             filtro_stock_checked=is_checked,
             SUCURSALES_DISPONIBLES=SUCURSALES_DISPONIBLES,
             sucursales_seleccionadas=displayed_sucursales, 
-            # Se elimina orden_seleccionado
+            # orden_seleccionado eliminado
         )
     except Exception as e:
         print(f"Error en la ruta home: {e}") 
@@ -302,7 +304,7 @@ def home():
                 TPL, query=query, detalle="", resultados=[], detalle_rows=[],
                 filtro_stock_checked=is_checked, SUCURSALES_DISPONIBLES=SUCURSALES_DISPONIBLES,
                 sucursales_seleccionadas=displayed_sucursales_on_error,
-                # Se elimina orden_seleccionado
+                # orden_seleccionado eliminado
                 error_message=f"Error al buscar: {str(e)}"
             )
         except: 
