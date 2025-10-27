@@ -77,10 +77,8 @@ TPL = """
     .results-list { margin-top: 20px; }
     .item{ display: flex; justify-content: space-between; align-items: center; padding: 12px 15px; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 10px; background-color: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.05); cursor: pointer; transition: background-color 0.2s ease, box-shadow 0.2s ease; }
     .item-desc { flex-grow: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-right: 10px;}
-    /* --- CAMBIO: Estilo para el Código (ahora en b) --- */
-    .item-desc b{ color:#0f172a; font-weight: 600; /* Un poco menos grueso que bold */}
-    /* --- CAMBIO: Estilo para la Descripción (ahora en span) --- */
-    .item-desc .description-text { color: var(--gris); margin-left: 8px; /* Espacio después del código */ font-size: 0.95em; }
+    .item-desc b{ color:#0f172a; font-weight: 600; }
+    .item-desc .description-text { color: var(--gris); margin-left: 8px; font-size: 0.95em; }
     .item-desc mark { background-color: var(--amarillo-resaltar); padding: 0 2px; border-radius: 3px; color: #1e293b; }
     .stock-badge { flex-shrink: 0; font-weight: 700; color: var(--azul); padding-left: 15px; display: inline-flex; align-items: center; gap: 5px; }
     .item:hover { background-color: var(--azul-claro); box-shadow: 0 2px 5px rgba(0,0,0,.08); }
@@ -95,9 +93,23 @@ TPL = """
     .filter-box input { margin-right: 6px; vertical-align: middle; }
     .filter-box label { vertical-align: middle; cursor: pointer; }
 
+    /* --- CAMBIO 1: Estilos para la guía de clasificación --- */
+    .clasificacion-guia {
+        font-size: 0.8em; /* Más pequeño */
+        color: var(--gris);
+        padding: 10px 15px; /* Padding */
+        margin-top: 15px; /* Espacio arriba */
+        border-top: 1px solid var(--gris-claro); /* Línea divisoria arriba */
+        line-height: 1.4; /* Espaciado entre líneas */
+    }
+    .clasificacion-guia span { font-weight: 600; }
+    .clasificacion-guia .guia-c { color: var(--naranja); }
+    .clasificacion-guia .guia-sm { color: var(--rojo); }
+
+
     .nores{background:#fff7ed;color:#92400e;padding:15px;border-radius:8px;margin-top:20px; text-align: center;}
     .foot{margin:36px 0 6px 0;text-align:center;color:var(--gris);font-size:14px}
-    .sticky-details { position: sticky; top: 60px; background: #fff; z-index: 10; margin: -22px -28px 0 -28px; padding: 22px 28px 12px 28px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); }
+    .sticky-details { position: sticky; top: 60px; background: #fff; z-index: 10; margin: -22px -28px 0 -28px; padding: 22px 28px 0px 28px; /* Reducir padding-bottom */ box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); }
     .spinner { border: 4px solid rgba(0, 0, 0, 0.1); width: 36px; height: 36px; border-radius: 50%; border-left-color: var(--azul); animation: spin 1s ease infinite; margin: 10px auto; }
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
   </style>
@@ -135,13 +147,19 @@ TPL = """
         <label for="filtro_stock">Solo con existencia</label>
       </div>
     </div>
-  </div>
-  <div class="results-list">
+    
+    <div class="clasificacion-guia">
+      <span>A:</span> de 6 a 12 meses vendidos<br>
+      <span>B:</span> de 3 a 5 meses vendidos<br>
+      <span class="guia-c">C:</span> <span class="guia-c">de 1 a 2 meses vendidos</span><br>
+      <span class="guia-sm">Sin Mov:</span> <span class="guia-sm">ningún mes con venta (>0)</span>
+    </div>
+    
+  </div> <div class="results-list">
       {% if resultados %}
         {% for r in resultados %}
           <div class="item" onclick="sel('{{ r['Descripcion']|e }}')">
             <div class="item-desc">
-              {# --- CAMBIO: Código primero, luego descripción --- #}
               <b>{{ r['Codigo'] }}</b>
               <span class="description-text">{{ r['HighlightedDesc']|safe }}</span>
             </div>
@@ -211,7 +229,6 @@ TPL = """
       searchInput.value = '';
       Array.from(searchForm.querySelectorAll('input[type=hidden]')).forEach(el => el.disabled = false);
       Array.from(searchForm.querySelectorAll('input[name=sucursal]')).forEach(el => el.checked = false);
-      // Se elimina la línea de orden
       document.getElementById('filtro_stock').checked = true;
       searchForm.submit();
     }
@@ -246,35 +263,40 @@ def home():
     try:
         if query:
             like_query = f"%{query}%"
-            params = [like_query, like_query] 
+            params = [] # Reiniciar params para la subconsulta primero
             
-            sql_select = "SELECT DISTINCT p_global.Codigo, p_global.Descripcion, p_global.Existencia\n"
-            sql_from = "FROM inventario_plain p_global\n"
-            sql_join = ""
-            sql_where = "WHERE p_global.Sucursal = 'Global'\n  AND (p_global.Descripcion LIKE ? OR p_global.Codigo LIKE ?)\n"
-            
-            where_conditions = []
-            
+            # --- CORRECCIÓN FINAL LÓGICA SQL v8 ---
+            # Subconsulta para encontrar los códigos válidos según filtros
+            sub_sql = "SELECT DISTINCT p_sucursal.Codigo FROM inventario_plain p_sucursal WHERE p_sucursal.Sucursal != 'Global'"
+            sub_where_conditions = []
+
+            # Añadir filtro de sucursal a la subconsulta
             if apply_sucursal_filter:
-                if not sql_join: sql_join = "JOIN inventario_plain p_sucursal ON p_global.Codigo = p_sucursal.Codigo\n"
                 placeholders = ', '.join('?' * len(sucursales_for_query))
-                where_conditions.append(f"p_sucursal.Sucursal IN ({placeholders})")
+                sub_where_conditions.append(f"p_sucursal.Sucursal IN ({placeholders})")
                 params.extend(sucursales_for_query)
             
+            # Añadir filtro de stock a la subconsulta si está chequeado
             if is_checked:
-                if not sql_join: sql_join = "JOIN inventario_plain p_sucursal ON p_global.Codigo = p_sucursal.Codigo\n"
-                where_conditions.append("CAST(p_sucursal.Existencia AS REAL) > 0")
-                where_conditions.append("p_sucursal.Sucursal != 'Global'")
+                sub_where_conditions.append("CAST(p_sucursal.Existencia AS REAL) > 0")
 
-            if where_conditions:
-                sql_where += "  AND " + "\n  AND ".join(where_conditions)
+            if sub_where_conditions:
+                 sub_sql += " AND " + " AND ".join(sub_where_conditions)
 
-            # Ordenación por defecto (puedes añadirla aquí si quieres un orden específico siempre)
-            order_clause = " ORDER BY p_global.Descripcion COLLATE NOCASE ASC" 
-
-            sql = sql_select + sql_from + sql_join + sql_where + order_clause + " LIMIT 30"
+            # Consulta principal
+            sql = f"""
+                SELECT p_global.Codigo, p_global.Descripcion, p_global.Existencia
+                FROM inventario_plain p_global
+                WHERE p_global.Sucursal = 'Global'
+                  AND (p_global.Descripcion LIKE ? OR p_global.Codigo LIKE ?)
+                  -- Asegurarse de que el producto exista en las sucursales filtradas (si hubo filtros)
+                  AND p_global.Codigo IN ({sub_sql}) 
+                ORDER BY p_global.Descripcion COLLATE NOCASE ASC 
+                LIMIT 30
+            """
             
-            final_params = [like_query, like_query] + params[2:]
+            # Insertar los parámetros de LIKE al inicio
+            final_params = [like_query, like_query] + params
             
             resultados_raw = q(sql, tuple(final_params)) 
 
