@@ -16,33 +16,42 @@ def normalize_columns_to_text(cols):
     out = []
     for c in cols:
         val = str(c).strip() if pd.notna(c) else ""
-        if val.endswith(".0"): # Corregir fechas leídas como float
+        # Corregir posible error de pandas leyendo fechas como números flotantes
+        if val.endswith(".0"):
             try: val = str(int(float(val)))
             except ValueError: pass
         out.append(val)
     return out
 
-def detect_columns(df, needed_map):
+def detect_columns(df):
     """
-    Detecta columnas basado en un mapa de nombres estándar a posibles nombres reales.
-    Ej: {'Codigo': ['cve_prod', 'codigo'], 'Existencia': ['inv', 'exist']}
+    Detecta las 4 columnas clave basado en nombres flexibles.
     """
     lower = [c.lower() for c in df.columns]
+    # Mapeos flexibles conocidos
+    col_map_options = {
+        "Codigo": ["cve_prod", "codigo", "clave"],         # Col B
+        "Descripcion": ["desc_prod", "descripcion"],      # Col D
+        "Existencia": ["inv", "existencia", "stock"],     # Col E
+        "Clasificacion": ["clasificacion", "clase", "fi"] # Col FI
+    }
+
     detected_map = {}
     missing = []
 
-    for std_name, options in needed_map.items():
+    for std_name, options in col_map_options.items():
         # Busca columnas cuyos nombres (minúsculas) CONTENGAN alguna opción
         found_col = next((df.columns[i] for i, c in enumerate(lower) if any(o in c for o in options)), None)
         if found_col:
             detected_map[std_name] = found_col
         else:
             missing.append(std_name)
+
     return detected_map, missing
 
 def main():
     print("=" * 60)
-    print(" BUSCADOR DE INVENTARIO – FERRETERÍA EL CEDRO (v4 - Leer Class XX)")
+    print(" BUSCADOR DE INVENTARIO – FERRETERÍA EL CEDRO (v5 - Leer Solo Class XX)")
     print("=" * 60)
 
     if not os.path.exists(EXCEL_PATH):
@@ -52,12 +61,7 @@ def main():
     print("\n[1/3] Leyendo hojas de Sucursal (Class(XX))...")
 
     all_sucursal_data = []
-    required_cols_map = {
-        "Codigo": ["cve_prod", "codigo", "clave"], # Col B
-        "Descripcion": ["desc_prod", "descripcion"], # Col D
-        "Existencia": ["inv", "existencia", "stock"], # Col E
-        "Clasificacion": ["clasificacion", "clase", "fi"] # Col FI (añadido 'fi')
-    }
+    found_sheets = []
 
     try:
         xls = pd.ExcelFile(EXCEL_PATH, engine='openpyxl')
@@ -65,7 +69,7 @@ def main():
         print(f"Hojas de sucursal detectadas: {', '.join(hojas_class)}")
 
         if not hojas_class:
-            print("❌ No se encontraron hojas que empiecen con 'Class'. Verifica los nombres de las pestañas.")
+            print("❌ No se encontraron hojas que empiecen con 'Class'. Verifica nombres.")
             return
 
         for hoja in hojas_class:
@@ -75,20 +79,21 @@ def main():
                 print(f"⚠️ Hoja '{hoja}' ignorada (código '{suc_code}' no reconocido).")
                 continue
 
+            found_sheets.append(hoja)
             print(f" - Leyendo hoja: {hoja} (Sucursal: {suc_code}) ...")
             try:
-                # Asume encabezados en fila 9 (índice 8) - AJUSTA SI ES DIFERENTE
+                # Asume encabezados en fila 9 (índice 8)
                 df = pd.read_excel(EXCEL_PATH, sheet_name=hoja, header=8, engine='openpyxl')
-                df = df.dropna(how='all').reset_index(drop=True) # Eliminar filas vacías
-                df.columns = normalize_columns_to_text(df.columns) # Limpiar nombres de columnas
+                df = df.dropna(how='all').reset_index(drop=True)
+                df.columns = normalize_columns_to_text(df.columns)
 
-                detected_map, missing = detect_columns(df, required_cols_map)
+                detected_map, missing = detect_columns(df)
 
                 if missing:
                     print(f"⚠️  En la hoja {hoja} faltan columnas: {missing}")
                     print("   Columnas detectadas:", list(df.columns))
                     print("   Saltando esta hoja.")
-                    continue # Saltar esta hoja si faltan columnas clave
+                    continue
 
                 # Seleccionar y renombrar a nombres estándar
                 df_suc = df[list(detected_map.values())].rename(columns={v: k for k, v in detected_map.items()})
@@ -97,13 +102,12 @@ def main():
                 df_suc['Codigo'] = df_suc['Codigo'].astype(str).str.strip()
                 df_suc['Descripcion'] = df_suc['Descripcion'].astype(str).str.strip()
                 df_suc['Clasificacion'] = df_suc['Clasificacion'].astype(str).fillna("").str.strip().replace('', 'S/M')
-                # Convertir Existencia a número, manejar errores poniendo 0
                 df_suc['Existencia'] = pd.to_numeric(df_suc['Existencia'], errors='coerce').fillna(0)
 
                 # Filtrar filas sin código
                 df_suc = df_suc[df_suc['Codigo'] != '']
 
-                # Añadir la columna Sucursal con el código corto
+                # Añadir la columna Sucursal
                 df_suc['Sucursal'] = suc_code
 
                 all_sucursal_data.append(df_suc[['Codigo', 'Descripcion', 'Existencia', 'Clasificacion', 'Sucursal']])
@@ -119,14 +123,13 @@ def main():
         print("❌ No se pudieron leer datos válidos de ninguna hoja 'Class(XX)'.")
         return
 
-    # Combinar datos de todas las sucursales
+    # Combinar datos de todas las sucursales leídas
     data_combined = pd.concat(all_sucursal_data, ignore_index=True)
-    print(f"✅ Total registros leídos de hojas Class: {len(data_combined)}")
+    print(f"✅ Total registros leídos de {len(found_sheets)} hojas Class: {len(data_combined)}")
 
     print("\n[2/3] Agrupando datos y calculando Global...")
 
-    # Agrupar por Codigo y Sucursal para eliminar posibles duplicados DENTRO de una hoja
-    # y asegurar que la existencia sea numérica (aunque ya debería serlo)
+    # Agrupar por Codigo y Sucursal (elimina duplicados dentro de una hoja si los hubiera)
     grouped_data = data_combined.groupby(['Codigo', 'Sucursal']).agg(
         Descripcion=('Descripcion', 'first'),
         Existencia=('Existencia', 'sum'), # Sumar si hay duplicados Codigo/Sucursal
@@ -137,8 +140,7 @@ def main():
     global_stock = grouped_data.groupby('Codigo').agg(
          Descripcion=('Descripcion', 'first'),
          Existencia=('Existencia', 'sum'), # Suma de todas las sucursales
-         # Tomamos la primera clasificación encontrada (podría mejorarse)
-         Clasificacion=('Clasificacion', 'first')
+         Clasificacion=('Clasificacion', 'first') # Tomamos la primera encontrada
     ).reset_index()
     global_stock['Sucursal'] = 'Global'
 
@@ -148,8 +150,7 @@ def main():
     # Convertir columnas finales a texto para la DB
     for c in ["Codigo", "Descripcion", "Existencia", "Clasificacion", "Sucursal"]:
          if c == 'Existencia':
-             # Convertir suma a entero y luego a string
-             final_data[c] = final_data[c].astype(float).astype(int).astype(str)
+             final_data[c] = final_data[c].astype(float).astype(int).astype(str) # Convertir suma a entero y luego a string
          else:
              final_data[c] = final_data[c].astype(str).fillna("").str.strip()
 
@@ -174,11 +175,10 @@ def main():
     cur.execute("CREATE INDEX IF NOT EXISTS idx_inv_cod  ON inventario_plain(Codigo);")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_inv_suc  ON inventario_plain(Sucursal);")
 
-    # ---- Tabla FTS5 (Solo Codigo y Descripcion únicos) ----
+    # ---- Tabla FTS5 (Solo Codigo y Descripcion únicos de Global) ----
     try:
         cur.execute("DROP TABLE IF EXISTS inventario;")
         cur.execute("CREATE VIRTUAL TABLE inventario USING fts5(Codigo, Descripcion, content='');")
-        # Asegurarse de insertar solo productos únicos para FTS
         unique_products = final_data[final_data['Sucursal'] == 'Global'][['Codigo', 'Descripcion']].drop_duplicates().values.tolist()
         cur.executemany("INSERT INTO inventario (Codigo, Descripcion) VALUES (?, ?);", unique_products)
     except Exception as e:
