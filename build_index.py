@@ -2,6 +2,7 @@ import pandas as pd
 import sqlite3
 import os
 import datetime
+import re # Para limpieza extra
 
 # Lee el archivo Excel descargado por Render
 EXCEL_PATH = "clasificacionanual1025.xlsx" # Asegúrate que el nombre sea correcto
@@ -11,30 +12,32 @@ DB_PATH = "inventario_el_cedro.db"
 # Lista de nombres cortos para asegurar el orden y filtrar
 SUCURSALES_CORTAS = ['HI', 'EX', 'MT', 'SA', 'ADE']
 
-def normalize_columns_to_text(cols):
-    """Limpia los nombres de las columnas."""
-    out = []
-    for c in cols:
-        val = str(c).strip() if pd.notna(c) else ""
-        if val.endswith(".0"): # Corregir fechas leídas como float
-            try: val = str(int(float(val)))
-            except ValueError: pass
-        out.append(val)
-    return out
+def clean_text(value):
+    """Convierte a string, quita espacios y maneja None."""
+    return str(value).strip() if pd.notna(value) else ""
 
-def find_column_by_keywords(df_columns_lower, keywords):
-    """Encuentra el nombre exacto de la columna que contenga alguna keyword."""
-    for keyword in keywords:
-        found = next((col for col in df_columns_lower if keyword in col), None)
-        if found:
-            # Necesitamos el nombre original, no el lower case
-            original_index = df_columns_lower.index(found)
-            return df.columns[original_index]
-    return None
+def clean_existence(value):
+    """Limpia la existencia: quita caracteres no numéricos (excepto '.') y convierte a float."""
+    if pd.isna(value):
+        return 0.0
+    # Convertir a string, quitar espacios
+    text_value = str(value).strip()
+    # Quitar cualquier cosa que NO sea dígito, punto decimal o signo menos al inicio
+    cleaned_text = re.sub(r"[^0-9.-]", "", text_value)
+    # Manejar caso de solo '-' o '.'
+    if cleaned_text in ['-', '.', '-.']:
+         return 0.0
+    try:
+        # Intentar convertir a float
+        return float(cleaned_text)
+    except ValueError:
+        # Si falla la conversión después de limpiar, devolver 0
+        print(f"WARN: No se pudo convertir existencia '{value}' a número. Usando 0.")
+        return 0.0
 
 def main():
     print("=" * 60)
-    print(" BUSCADOR DE INVENTARIO – FERRETERÍA EL CEDRO (v6 - Lectura Explícita)")
+    print(" BUSCADOR DE INVENTARIO – FERRETERÍA EL CEDRO (v7 - Lectura Directa B,D,E,FI)")
     print("=" * 60)
 
     if not os.path.exists(EXCEL_PATH):
@@ -45,14 +48,16 @@ def main():
 
     all_sucursal_data = []
     found_sheets = []
-
-    # --- CORRECCIÓN: Nombres clave y sus posibles variaciones ---
-    col_keywords = {
-        "Codigo": ["cve_prod", "codigo", "clave"],         # Col B
-        "Descripcion": ["desc_prod", "descripcion"],      # Col D
-        "Existencia": ["inv", "existencia", "stock"],     # Col E
-        "Clasificacion": ["clasificacion", "clase", "fi"] # Col FI
+    # Columnas esperadas por ÍNDICE (0-based): B=1, D=3, E=4, FI=189 (asumiendo FI es la columna 190)
+    # ¡¡¡IMPORTANTE!!! AJUSTA EL ÍNDICE DE CLASIFICACIÓN (ahora 189) SI 'FI' NO ES LA COLUMNA 190
+    COL_INDICES = {
+        'Codigo': 1,        # Col B
+        'Descripcion': 3,   # Col D
+        'Existencia': 4,    # Col E
+        'Clasificacion': 189 # Col FI (índice 189 si es la columna 190)
     }
+    # Nombres estándar que usaremos
+    COL_NAMES = ['Codigo', 'Descripcion', 'Existencia', 'Clasificacion']
 
     try:
         xls = pd.ExcelFile(EXCEL_PATH, engine='openpyxl')
@@ -72,57 +77,46 @@ def main():
             found_sheets.append(hoja)
             print(f" - Leyendo hoja: {hoja} (Sucursal: {suc_code}) ...")
             try:
-                # Leer SIN encabezado automático, leeremos desde la fila 10 (índice 9)
-                # IMPORTANTE: Ajusta header=None y skiprows=9 si tu primera fila de datos NO es la 10
-                df = pd.read_excel(EXCEL_PATH, sheet_name=hoja, header=None, skiprows=9, engine='openpyxl')
+                # --- CORRECCIÓN CLAVE: Leer SIN header, saltar 9 filas, USAR ÍNDICES ---
+                # Leer desde la fila 10 (skiprows=9), sin header automático
+                # usecols para leer solo las columnas B, D, E, FI por su índice
+                df = pd.read_excel(EXCEL_PATH, sheet_name=hoja, header=None, skiprows=9,
+                                   usecols=[COL_INDICES['Codigo'], COL_INDICES['Descripcion'],
+                                            COL_INDICES['Existencia'], COL_INDICES['Clasificacion']],
+                                   engine='openpyxl')
 
-                # --- CORRECCIÓN: Leer los encabezados de la fila 9 (ahora la primera fila leída, índice 0) ---
-                # Asumimos que los nombres correctos están en la fila 9 del Excel original
-                df_headers_raw = pd.read_excel(EXCEL_PATH, sheet_name=hoja, header=8, nrows=0, engine='openpyxl')
-                df.columns = normalize_columns_to_text(df_headers_raw.columns) # Asignar nombres limpios
+                # Asignar nombres estándar a las columnas leídas
+                df.columns = COL_NAMES
 
                 df = df.dropna(how='all').reset_index(drop=True) # Quitar filas totalmente vacías
-                df_cols_lower = [str(c).lower() for c in df.columns] # Nombres en minúscula para buscar
 
-                # --- CORRECCIÓN: Detección explícita ---
-                detected_cols = {}
-                missing = []
-                for std_name, keywords in col_keywords.items():
-                    found_col_name = find_column_by_keywords(df_cols_lower, keywords)
-                    if found_col_name:
-                        detected_cols[std_name] = found_col_name
-                    else:
-                        missing.append(std_name)
+                # Limpiar datos usando funciones específicas
+                df['Codigo'] = df['Codigo'].apply(clean_text)
+                df['Descripcion'] = df['Descripcion'].apply(clean_text)
+                df['Clasificacion'] = df['Clasificacion'].apply(clean_text).replace('', 'S/M')
+                # Limpiar y convertir existencia a NÚMERO (float)
+                df['Existencia'] = df['Existencia'].apply(clean_existence)
 
-                if missing:
-                    print(f"⚠️  En la hoja {hoja} faltan columnas: {missing}")
-                    print("   Columnas detectadas:", list(df.columns))
-                    print("   Saltando esta hoja.")
+                # Filtrar filas sin código DESPUÉS de limpiar
+                original_rows = len(df)
+                df = df[df['Codigo'] != '']
+                if len(df) < original_rows:
+                    print(f"   INFO: Se descartaron {original_rows - len(df)} filas sin código.")
+
+                if df.empty:
+                    print(f"   INFO: No se encontraron datos válidos en la hoja {hoja}.")
                     continue
 
-                # --- CORRECCIÓN: Seleccionar y renombrar explícitamente ---
-                df_suc = df[[
-                    detected_cols["Codigo"],
-                    detected_cols["Descripcion"],
-                    detected_cols["Existencia"],
-                    detected_cols["Clasificacion"]
-                ]].copy()
-                df_suc.columns = ["Codigo", "Descripcion", "Existencia", "Clasificacion"] # Renombrar a estándar
+                # Añadir la columna Sucursal
+                df['Sucursal'] = suc_code
 
-                # Limpiar datos y convertir tipos
-                df_suc['Codigo'] = df_suc['Codigo'].astype(str).str.strip()
-                df_suc['Descripcion'] = df_suc['Descripcion'].astype(str).str.strip()
-                df_suc['Clasificacion'] = df_suc['Clasificacion'].astype(str).fillna("").str.strip().replace('', 'S/M')
-                # Forzar conversión a número ANTES de agrupar, manejar negativos
-                df_suc['Existencia'] = pd.to_numeric(df_suc['Existencia'], errors='coerce').fillna(0)
-
-                df_suc = df_suc[df_suc['Codigo'] != '']
-                df_suc['Sucursal'] = suc_code
-
-                all_sucursal_data.append(df_suc)
+                print(f"   INFO: Leídos {len(df)} registros válidos.")
+                all_sucursal_data.append(df) # Añadir DataFrame limpio
 
             except Exception as e:
                 print(f"❌ Error procesando la hoja {hoja}: {e}")
+                import traceback
+                traceback.print_exc() # Imprimir detalle del error
 
     except Exception as e:
         print(f"❌ Error crítico al abrir o leer el archivo Excel: {e}")
@@ -132,70 +126,92 @@ def main():
         print("❌ No se pudieron leer datos válidos de ninguna hoja 'Class(XX)'.")
         return
 
+    # Combinar datos de todas las sucursales leídas
     data_combined = pd.concat(all_sucursal_data, ignore_index=True)
     print(f"✅ Total registros leídos de {len(found_sheets)} hojas Class: {len(data_combined)}")
 
     print("\n[2/3] Agrupando datos y calculando Global...")
 
-    # --- CORRECCIÓN: Asegurar que Existencia sea numérica ANTES de agrupar ---
+    # Asegurarse de que Existencia es numérica antes de agrupar
     data_combined['Existencia'] = pd.to_numeric(data_combined['Existencia'], errors='coerce').fillna(0)
 
+    # Agrupar por Codigo y Sucursal (elimina duplicados dentro de una hoja si los hubiera)
     grouped_data = data_combined.groupby(['Codigo', 'Sucursal']).agg(
         Descripcion=('Descripcion', 'first'),
-        Existencia=('Existencia', 'sum'), # Ahora suma números
+        Existencia=('Existencia', 'sum'), # Sumar existencias numéricas
         Clasificacion=('Clasificacion', 'first')
     ).reset_index()
 
+    # Calcular fila 'Global'
     global_stock = grouped_data.groupby('Codigo').agg(
          Descripcion=('Descripcion', 'first'),
-         Existencia=('Existencia', 'sum'), # Suma números
+         Existencia=('Existencia', 'sum'), # Suma numérica
          Clasificacion=('Clasificacion', 'first')
     ).reset_index()
     global_stock['Sucursal'] = 'Global'
 
+    # Unir datos de sucursales con los datos globales
     final_data = pd.concat([grouped_data, global_stock], ignore_index=True)
 
     # Convertir columnas finales a texto para la DB
     for c in ["Codigo", "Descripcion", "Existencia", "Clasificacion", "Sucursal"]:
          if c == 'Existencia':
-             # Convertir suma (posiblemente float si hubo decimales) a entero y luego a string
-             final_data[c] = final_data[c].astype(float).astype(int).astype(str)
+             # Convertir suma (posiblemente float) a entero y luego a string
+             final_data[c] = final_data[c].round(0).astype(int).astype(str)
          else:
              final_data[c] = final_data[c].astype(str).fillna("").str.strip()
 
     print(f"✅ Total de registros finales para DB (sucursales + global): {len(final_data)}")
+    # Imprimir algunas filas de ejemplo para verificar en logs
+    print("   Ejemplo de datos finales:")
+    print(final_data.head().to_string())
+
 
     print("\n[3/3] Construyendo base de datos SQLite...")
     if os.path.exists(DB_PATH):
-        os.remove(DB_PATH)
+        try:
+            os.remove(DB_PATH)
+            print(f"   INFO: Base de datos '{DB_PATH}' existente eliminada.")
+        except OSError as e:
+            print(f"⚠️ WARN: No se pudo eliminar la base de datos existente: {e}")
+
 
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
-    # ---- Tabla NORMAL ----
-    cur.execute("DROP TABLE IF EXISTS inventario_plain;")
-    cur.execute("CREATE TABLE inventario_plain (Codigo TEXT, Descripcion TEXT, Existencia TEXT, Clasificacion TEXT, Sucursal TEXT);")
-    cur.executemany(
-        "INSERT INTO inventario_plain (Codigo, Descripcion, Existencia, Clasificacion, Sucursal) VALUES (?, ?, ?, ?, ?);",
-        final_data[["Codigo", "Descripcion", "Existencia", "Clasificacion", "Sucursal"]].values.tolist()
-    )
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_inv_desc ON inventario_plain(Descripcion);")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_inv_cod  ON inventario_plain(Codigo);")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_inv_suc  ON inventario_plain(Sucursal);")
-
-    # ---- Tabla FTS5 ----
     try:
-        cur.execute("DROP TABLE IF EXISTS inventario;")
+        # ---- Tabla NORMAL ----
+        cur.execute("DROP TABLE IF EXISTS inventario_plain;") # Por si acaso
+        cur.execute("CREATE TABLE inventario_plain (Codigo TEXT, Descripcion TEXT, Existencia TEXT, Clasificacion TEXT, Sucursal TEXT);")
+        cur.executemany(
+            "INSERT INTO inventario_plain (Codigo, Descripcion, Existencia, Clasificacion, Sucursal) VALUES (?, ?, ?, ?, ?);",
+            final_data[["Codigo", "Descripcion", "Existencia", "Clasificacion", "Sucursal"]].values.tolist()
+        )
+        print("   INFO: Tabla 'inventario_plain' creada y poblada.")
+        # Índices
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_inv_desc ON inventario_plain(Descripcion);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_inv_cod  ON inventario_plain(Codigo);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_inv_suc  ON inventario_plain(Sucursal);")
+        print("   INFO: Índices creados para 'inventario_plain'.")
+
+        # ---- Tabla FTS5 ----
+        cur.execute("DROP TABLE IF EXISTS inventario;") # Por si acaso
         cur.execute("CREATE VIRTUAL TABLE inventario USING fts5(Codigo, Descripcion, content='');")
         unique_products = final_data[final_data['Sucursal'] == 'Global'][['Codigo', 'Descripcion']].drop_duplicates().values.tolist()
         cur.executemany("INSERT INTO inventario (Codigo, Descripcion) VALUES (?, ?);", unique_products)
+        print("   INFO: Tabla FTS 'inventario' creada y poblada.")
+
+        conn.commit()
+        print("✅ Base de datos creada y guardada correctamente.")
+
+    except sqlite3.Error as e:
+        print(f"❌ ERROR SQLite: {e}")
+        conn.rollback() # Deshacer cambios si hubo error
     except Exception as e:
-        print(f"⚠️ No se pudo crear/llenar la tabla FTS5: {e}")
-
-    conn.commit()
-    conn.close()
-
-    print("✅ Base de datos creada correctamente.")
+        print(f"❌ ERROR General al escribir en DB: {e}")
+        conn.rollback()
+    finally:
+        conn.close() # Asegurar que la conexión se cierre
 
 if __name__ == "__main__":
     main()
