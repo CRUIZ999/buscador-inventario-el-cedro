@@ -38,7 +38,6 @@ def highlight_term(text, term):
 
 
 # ------------------ plantilla HTML ------------------
-# (El TPL no cambia, se omite por brevedad)
 TPL = """
 <!doctype html>
 <html lang="es">
@@ -86,12 +85,12 @@ TPL = """
     .filters-container { display: flex; justify-content: space-between; align-items: flex-end; gap: 20px; margin-top: 15px; padding-bottom: 15px; border-bottom: 1px solid var(--gris-claro); flex-wrap: wrap;}
     .filter-group { display: flex; flex-direction: column; gap: 5px; }
     .filter-group label { font-weight: 600; color: var(--azul); margin-bottom: 3px; font-size: 14px;}
-    .filter-group select { padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 14px; background-color: #fff; }
+    /* Se elimina el estilo select ya que no hay */
     .sucursal-filters { display: flex; gap: 15px; align-items: center; flex-wrap: wrap; }
     .sucursal-filters label { font-weight: normal; color: var(--gris); margin: 0; font-size: 14px; cursor: pointer;}
     .sucursal-filters input { margin-right: 4px; vertical-align: middle; cursor: pointer;}
 
-    .filter-box { margin-top: 12px; text-align: right; color: var(--gris); }
+    .filter-box { margin-top: 12px; text-align: right; color: var(--gris); /* Ajustar margen si es necesario */ flex-grow: 1; /* Ocupar espacio sobrante */}
     .filter-box input { margin-right: 6px; vertical-align: middle; }
     .filter-box label { vertical-align: middle; cursor: pointer; }
 
@@ -119,7 +118,7 @@ TPL = """
       <button class="btn" type="submit" id="search-button">Buscar</button>
       {# #}
       {% for suc in SUCURSALES_DISPONIBLES %}<input type="hidden" name="sucursal_{{ suc }}" value="on" {% if suc not in sucursales_seleccionadas %}disabled{% endif %}>{% endfor %}
-      <input type="hidden" name="orden" value="{{ orden_seleccionado or '' }}">
+      {# #}
       <input type="hidden" name="filtro_stock" value="on" {% if not filtro_stock_checked %}disabled{% endif %}>
     </form>
     <div class="filters-container">
@@ -132,15 +131,7 @@ TPL = """
         </div>
       </div>
       {# #}
-      <div class="filter-group">
-        <label for="orden">Ordenar por:</label>
-        <select name="orden" id="orden" form="search-form" onchange="submitFormOnChange()">
-          <option value="descripcion_asc" {% if orden_seleccionado == 'descripcion_asc' %}selected{% endif %}>Descripción (A-Z)</option>
-          <option value="descripcion_desc" {% if orden_seleccionado == 'descripcion_desc' %}selected{% endif %}>Descripción (Z-A)</option>
-          <option value="stock_desc" {% if orden_seleccionado == 'stock_desc' %}selected{% endif %}>Stock (Mayor a Menor)</option>
-          <option value="stock_asc" {% if orden_seleccionado == 'stock_asc' %}selected{% endif %}>Stock (Menor a Mayor)</option>
-        </select>
-      </div>
+      {# #}
       <div class="filter-box">
         <input type="checkbox" name="filtro_stock" value="on" id="filtro_stock" form="search-form" onchange="submitFormOnChange()" {% if filtro_stock_checked %}checked{% endif %}>
         <label for="filtro_stock">Solo con existencia</label>
@@ -218,7 +209,7 @@ TPL = """
       searchInput.value = '';
       Array.from(searchForm.querySelectorAll('input[type=hidden]')).forEach(el => el.disabled = false);
       Array.from(searchForm.querySelectorAll('input[name=sucursal]')).forEach(el => el.checked = false);
-      document.getElementById('orden').value = 'descripcion_asc';
+      // Se elimina la línea de orden
       document.getElementById('filtro_stock').checked = true;
       searchForm.submit();
     }
@@ -243,7 +234,7 @@ def home():
     is_checked = (filtro_stock == "on")
     
     sucursales_seleccionadas = request.args.getlist("sucursal") 
-    orden_seleccionado = request.args.get("orden", "descripcion_asc")
+    # Se elimina orden_seleccionado
     
     apply_sucursal_filter = bool(sucursales_seleccionadas) 
     sucursales_for_query = sucursales_seleccionadas if apply_sucursal_filter else SUCURSALES_DISPONIBLES
@@ -255,56 +246,33 @@ def home():
             like_query = f"%{query}%"
             params = [like_query, like_query] 
             
-            # --- CORRECCIÓN LÓGICA SQL v6 FINAL ---
-            # Se reestructura para claridad y corrección
+            # --- CORRECCIÓN FINAL (v7): Lógica SQL sin Ordenación ---
             
-            # Parte 1: Encontrar los Códigos que cumplen los filtros
-            # Se usa una subconsulta o CTE (Common Table Expression)
-            
-            sql_base = """
-                WITH ValidCodigos AS (
-                    SELECT DISTINCT p_sucursal.Codigo
-                    FROM inventario_plain p_sucursal
-                    WHERE p_sucursal.Sucursal != 'Global'
-            """
+            sql_select = "SELECT DISTINCT p_global.Codigo, p_global.Descripcion, p_global.Existencia\n"
+            sql_from = "FROM inventario_plain p_global\n"
+            sql_join = ""
+            sql_where = "WHERE p_global.Sucursal = 'Global'\n  AND (p_global.Descripcion LIKE ? OR p_global.Codigo LIKE ?)\n"
             
             where_conditions = []
             
-            # Añadir filtro de sucursal a la subconsulta
             if apply_sucursal_filter:
+                if not sql_join: sql_join = "JOIN inventario_plain p_sucursal ON p_global.Codigo = p_sucursal.Codigo\n"
                 placeholders = ', '.join('?' * len(sucursales_for_query))
                 where_conditions.append(f"p_sucursal.Sucursal IN ({placeholders})")
                 params.extend(sucursales_for_query)
             
-            # Añadir filtro de stock a la subconsulta si está chequeado
             if is_checked:
+                if not sql_join: sql_join = "JOIN inventario_plain p_sucursal ON p_global.Codigo = p_sucursal.Codigo\n"
                 where_conditions.append("CAST(p_sucursal.Existencia AS REAL) > 0")
+                where_conditions.append("p_sucursal.Sucursal != 'Global'")
 
             if where_conditions:
-                 sql_base += " AND " + " AND ".join(where_conditions)
-                 
-            sql_base += """
-                )
-                SELECT p_global.Codigo, p_global.Descripcion, p_global.Existencia
-                FROM inventario_plain p_global
-                WHERE p_global.Sucursal = 'Global'
-                  AND (p_global.Descripcion LIKE ? OR p_global.Codigo LIKE ?)
-                  -- Asegurarse de que el producto exista en las sucursales filtradas (si hubo filtros)
-                  AND p_global.Codigo IN (SELECT Codigo FROM ValidCodigos) 
-            """
-            
-            # Ordenación (se aplica sobre los datos de p_global)
-            order_clause = ""
-            if orden_seleccionado == 'descripcion_asc': order_clause = " ORDER BY p_global.Descripcion COLLATE NOCASE ASC"
-            elif orden_seleccionado == 'descripcion_desc': order_clause = " ORDER BY p_global.Descripcion COLLATE NOCASE DESC"
-            elif orden_seleccionado == 'stock_desc': order_clause = " ORDER BY CAST(p_global.Existencia AS INTEGER) DESC, p_global.Descripcion COLLATE NOCASE ASC" 
-            elif orden_seleccionado == 'stock_asc': order_clause = " ORDER BY CAST(p_global.Existencia AS INTEGER) ASC, p_global.Descripcion COLLATE NOCASE ASC"  
-            else: order_clause = " ORDER BY p_global.Descripcion COLLATE NOCASE ASC"
+                sql_where += "  AND " + "\n  AND ".join(where_conditions)
 
-            sql = sql_base + order_clause + " LIMIT 30"
+            # Se elimina la cláusula ORDER BY
+            sql = sql_select + sql_from + sql_join + sql_where + " LIMIT 30"
             
-            # Insertar los parámetros de LIKE al inicio
-            final_params = [like_query, like_query] + params[2:] # Excluir los LIKE params iniciales duplicados
+            final_params = [like_query, like_query] + params[2:]
             
             resultados_raw = q(sql, tuple(final_params)) 
 
@@ -316,7 +284,6 @@ def home():
                 res_dict['HighlightedDesc'] = highlight_term(res_dict['Descripcion'], query)
                 resultados.append(res_dict)
 
-        # Determinar sucursales seleccionadas para pasar a la plantilla
         displayed_sucursales = sucursales_seleccionadas if apply_sucursal_filter else []
 
         return render_template_string(
@@ -325,7 +292,7 @@ def home():
             filtro_stock_checked=is_checked,
             SUCURSALES_DISPONIBLES=SUCURSALES_DISPONIBLES,
             sucursales_seleccionadas=displayed_sucursales, 
-            orden_seleccionado=orden_seleccionado
+            # Se elimina orden_seleccionado
         )
     except Exception as e:
         print(f"Error en la ruta home: {e}") 
@@ -335,7 +302,7 @@ def home():
                 TPL, query=query, detalle="", resultados=[], detalle_rows=[],
                 filtro_stock_checked=is_checked, SUCURSALES_DISPONIBLES=SUCURSALES_DISPONIBLES,
                 sucursales_seleccionadas=displayed_sucursales_on_error,
-                orden_seleccionado=orden_seleccionado,
+                # Se elimina orden_seleccionado
                 error_message=f"Error al buscar: {str(e)}"
             )
         except: 
