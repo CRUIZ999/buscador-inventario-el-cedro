@@ -118,19 +118,20 @@ def main():
         Descripcion=('Descripcion', 'first'),
         DescProd2=('DescProd2', 'first'),
         Existencia=('Existencia', 'sum'),
-        Clasificacion=('Clasificacion', 'first')
+        Clasificacion=('Clasificacion', 'first') # <-- La re-agregamos
     ).reset_index()
 
     global_stock = grouped_data.groupby('Codigo').agg(
          Descripcion=('Descripcion', 'first'),
          DescProd2=('DescProd2', 'first'),
          Existencia=('Existencia', 'sum'),
-         Clasificacion=('Clasificacion', 'first')
+         Clasificacion=('Clasificacion', 'first') # <-- La re-agregamos
     ).reset_index()
     global_stock['Sucursal'] = 'Global'
 
     final_data = pd.concat([grouped_data, global_stock], ignore_index=True)
 
+    # Agregamos 'Clasificacion' a la lista
     for c in ["Codigo", "Descripcion", "DescProd2", "Existencia", "Clasificacion", "Sucursal"]:
          if c == 'Existencia':
              final_data[c] = final_data[c].round(0).astype(int).astype(str)
@@ -155,7 +156,9 @@ def main():
     try:
         cur = conn.cursor()
 
+        # ---- Tabla NORMAL (Para detalles) ----
         cur.execute("DROP TABLE IF EXISTS inventario_plain;")
+        # Volvemos a añadir 'Clasificacion'
         cur.execute("CREATE TABLE inventario_plain (Codigo TEXT, Descripcion TEXT, DescProd2 TEXT, Existencia TEXT, Clasificacion TEXT, Sucursal TEXT);")
         cur.executemany(
             "INSERT INTO inventario_plain (Codigo, Descripcion, DescProd2, Existencia, Clasificacion, Sucursal) VALUES (?, ?, ?, ?, ?, ?);",
@@ -167,6 +170,7 @@ def main():
         cur.execute("CREATE INDEX IF NOT EXISTS idx_inv_suc  ON inventario_plain(Sucursal);")
         print("   INFO: Índices creados para 'inventario_plain'.")
 
+        # ---- Tabla FTS5 (Para búsqueda rápida) ----
         cur.execute("DROP TABLE IF EXISTS inventario;")
         cur.execute("CREATE VIRTUAL TABLE inventario USING fts5(Codigo, Descripcion, DescProd2, content='');")
         
