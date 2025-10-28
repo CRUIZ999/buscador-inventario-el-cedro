@@ -14,7 +14,7 @@ def get_db():
     db = getattr(g, '_database', None)
     if db is None:
         db = g._database = sqlite3.connect(DATABASE)
-        db.row_factory = sqlite3.Row
+        db.row_factory = sqlite3.Row # Permite acceder a los resultados por nombre de columna
     return db
 
 @app.teardown_appcontext
@@ -134,7 +134,7 @@ HTML_TEMPLATE = """
             font-size: 0.9em;
         }
         .tabla-existencias tbody td:first-child,
-        .tabla-existencias tbody td:nth-child(2) {
+        .tabla-existencias tbody td:nth-child(2) { /* Ajustado si Clasificacion se muestra */
             text-align: left;
             font-weight: bold;
             font-size: 0.9em;
@@ -254,7 +254,7 @@ HTML_TEMPLATE = """
             }
             currentQuery = query;
             try {
-                const response = await fetch(`/search?q=${encodeURIComponent(query)}`);
+                const response = await fetch(\`/search?q=\${encodeURIComponent(query)}\`);
                 const productos = await response.json();
                 displaySearchResults(productos);
             } catch (error) {
@@ -274,11 +274,11 @@ HTML_TEMPLATE = """
                 const li = document.createElement('li');
                 li.dataset.codigo = producto.Codigo;
                 
-                li.innerHTML = `
-                    <span class="codigo-aq">(${producto.DescProd2 || 'S/C'})</span>
-                    <span class="codigo-b">${producto.Codigo}</span> – 
-                    <span class="desc-d">${producto.Descripcion}</span>
-                `;
+                li.innerHTML = \`
+                    <span class="codigo-aq">(\${producto.DescProd2 || 'S/C'})</span>
+                    <span class="codigo-b">\${producto.Codigo}</span> – 
+                    <span class="desc-d">\${producto.Descripcion}</span>
+                \`;
                 
                 li.addEventListener('click', () => {
                     fetchDetalle(producto.Codigo);
@@ -296,11 +296,11 @@ HTML_TEMPLATE = """
         async function fetchDetalle(codigo) {
             try {
                 const filtros = getFiltros();
-                const response = await fetch(`/detalle?codigo=${encodeURIComponent(codigo)}&${filtros.query}`);
+                const response = await fetch(\`/detalle?codigo=\${encodeURIComponent(codigo)}&\${filtros.query}\`);
                 const data = await response.json();
                 
                 if (data.error) {
-                    detalleProducto.innerHTML = `<p style="color: red;">${data.error}</p>`;
+                    detalleProducto.innerHTML = \`<p style="color: red;">\${data.error}</p>\`;
                     return;
                 }
                 
@@ -329,41 +329,41 @@ HTML_TEMPLATE = """
                     claseExistencia = 'class="existencia-negativa"';
                 }
 
-                ths += `<th>${suc}</th>`;
-                tdsExistencia += `<td ${claseExistencia}>${existenciaStr}</td>`;
-                tdsClasificacion += `<td>${info.Clasificacion}</td>`; // <-- Re-agregado
+                ths += \`<th>\${suc}</th>\`;
+                tdsExistencia += \`<td \${claseExistencia}>\${existenciaStr}</td>\`;
+                tdsClasificacion += \`<td>\${info.Clasificacion}</td>\`; // <-- Re-agregado
             });
             
             let stockTotal = data.global.Existencia;
             let stockTotalClase = parseInt(stockTotal) < 0 ? 'class="existencia-negativa"' : '';
 
             // CAMBIO: Volver a agregar la fila de Clasificación
-            detalleProducto.innerHTML = `
-                <h3>Detalle: ${data.global.Descripcion}</h3>
-                <p><strong>Código (B):</strong> ${data.codigo_buscado}</p>
-                <p><strong>Código (AQ):</strong> ${data.global.DescProd2 || 'S/C'}</p>
+            detalleProducto.innerHTML = \`
+                <h3>Detalle: \${data.global.Descripcion}</h3>
+                <p><strong>Código (B):</strong> \${data.codigo_buscado}</p>
+                <p><strong>Código (AQ):</strong> \${data.global.DescProd2 || 'S/C'}</p>
                 <table class="tabla-existencias">
                     <thead>
                         <tr>
                             <th></th>
-                            ${ths}
+                            \${ths}
                             <th>Stock Total</th>
                         </tr>
                     </thead>
                     <tbody>
                         <tr>
                             <td><strong>EXISTENCIAS</strong></td>
-                            ${tdsExistencia}
-                            <td class="existencia-val" ${stockTotalClase}>${stockTotal}</td>
+                            \${tdsExistencia}
+                            <td class="existencia-val \${stockTotalClase}">\${stockTotal}</td>
                         </tr>
                         <tr>
                             <td><strong>CLASIFICACIÓN</strong></td>
-                            ${tdsClasificacion}
-                            <td>${data.global.Clasificacion}</td>
+                            \${tdsClasificacion}
+                            <td>\${data.global.Clasificacion}</td>
                         </tr>
                     </tbody>
                 </table>
-            `;
+            \`;
             
             detalleProducto.style.display = 'block';
             leyendaClasificacion.style.display = 'block'; // <-- Re-agregado
@@ -382,7 +382,7 @@ HTML_TEMPLATE = """
                 queryParts.push('solo_existencia=true');
             }
             sucursales.forEach(suc => {
-                queryParts.push(`sucursal=${encodeURIComponent(suc)}`);
+                queryParts.push(\`sucursal=\${encodeURIComponent(suc)}\`);
             });
             
             return {
