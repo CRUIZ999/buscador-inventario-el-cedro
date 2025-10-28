@@ -1,0 +1,161 @@
+# app.py (v12 - Usa render_template)
+from flask import Flask, render_template, request, jsonify, g # Cambiado render_template_string a render_template
+import sqlite3
+import os
+
+app = Flask(__name__)
+DATABASE = 'inventario.db'
+SUCURSALES_ORDEN = ['HI', 'EX', 'MT', 'SA', 'ADE']
+
+# --- Conexión a la Base de Datos ---
+def get_db():
+    db = getattr(g, '_database', None)
+    if db is None:
+        db = g._database = sqlite3.connect(DATABASE)
+        db.row_factory = sqlite3.Row
+    return db
+
+@app.teardown_appcontext
+def close_connection(exception):
+    db = getattr(g, '_database', None)
+    if db is not None:
+        db.close()
+
+# --- Rutas de la Aplicación ---
+
+@app.route('/')
+def index():
+    """Sirve la página principal desde el archivo HTML."""
+    if not os.path.exists(DATABASE):
+        # Renderizar un mensaje de error simple si la DB no existe
+        return "Error: La base de datos 'inventario.db' no se ha construido. El proceso de Build falló.", 500
+    
+    # Renderiza el archivo templates/index.html
+    return render_template('index.html', SUCURSALES_ORDEN=SUCURSALES_ORDEN)
+
+@app.route('/search')
+def search():
+    """Maneja la búsqueda de autocompletado (AJAX)."""
+    query = request.args.get('q', '').strip()
+    if not query:
+        return jsonify([])
+
+    query_fts = f'"{query}"*' 
+    
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        
+        cur.execute(
+            # Busca en las 3 columnas de la tabla FTS
+            "SELECT DescProd2, Codigo, Descripcion FROM inventario WHERE inventario MATCH ? ORDER BY rank LIMIT 50",
+            (query_fts,)
+        )
+        productos = [dict(row) for row in cur.fetchall()]
+        return jsonify(productos)
+        
+    except sqlite3.Error as e:
+        print(f"Error de búsqueda SQLite: {e}")
+        # Evita mostrar el error interno al usuario, devuelve lista vacía o mensaje genérico
+        return jsonify({"error": "Error al buscar en la base de datos"}), 500 
+    except Exception as e:
+        print(f"Error general en /search: {e}")
+        return jsonify({"error": "Error interno del servidor"}), 500
+
+
+@app.route('/detalle')
+def detalle():
+    """Obtiene los detalles de un producto específico (AJAX)."""
+    codigo = request.args.get('codigo', '').strip()
+    if not codigo:
+        return jsonify({"error": "No se proporcionó código de producto"}), 400
+
+    solo_existencia = request.args.get('solo_existencia') == 'true'
+    sucursales_filtro = request.args.getlist('sucursal')
+
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        
+        # Selecciona todas las columnas necesarias de la tabla plain
+        query_sql = "SELECT Sucursal, Existencia, Clasificacion, DescProd2, Descripcion FROM inventario_plain WHERE Codigo = ?"
+        params = [codigo]
+        
+        # --- Aplicar filtros ---
+        # El filtro de existencia solo aplica a sucursales, no a Global
+        if solo_existencia:
+             query_sql += " AND (Sucursal = 'Global' OR CAST(Existencia AS INTEGER) > 0)"
+
+        # El filtro de sucursal solo aplica a sucursales
+        if sucursales_filtro:
+            placeholders = ', '.join('?' for _ in sucursales_filtro)
+            # Aseguramos incluir Global siempre, además de las filtradas
+            query_sql += f" AND (Sucursal = 'Global' OR Sucursal IN ({placeholders}))"
+            params.extend(sucursales_filtro)
+        # --- Fin Filtros ---
+
+        cur.execute(query_sql, params)
+        resultados = cur.fetchall()
+        
+        if not resultados:
+            # Revisa si el código existe en absoluto (sin filtros)
+            cur.execute("SELECT 1 FROM inventario_plain WHERE Codigo = ? LIMIT 1", (codigo,))
+            if not cur.fetchone():
+                 return jsonify({"error": "Código de producto no encontrado"}), 404
+            else:
+                 # El producto existe, pero no cumple los filtros (o solo existe en sucursales no seleccionadas)
+                 # Devolvemos un objeto vacío para que el frontend muestre "No encontrado con filtros"
+                 # O podrías devolver un mensaje específico:
+                 return jsonify({"error": "Producto no encontrado con los filtros actuales"}), 404
+
+
+        data = {
+            "codigo_buscado": codigo,
+            "sucursales": {},
+            "global": {} # Inicializa global vacío
+        }
+        
+        # Procesar resultados y separar Global
+        for row_obj in resultados:
+            row = dict(row_obj) # Convertir sqlite3.Row a dict
+            sucursal = row['Sucursal']
+            if sucursal == 'Global':
+                data['global'] = row
+            else:
+                # Solo añadir si no hay filtro de sucursales O si está en el filtro
+                if not sucursales_filtro or sucursal in sucursales_filtro:
+                     # Y si cumple el filtro de solo_existencia (si está activo)
+                     if not solo_existencia or int(row.get('Existencia', 0)) > 0:
+                          data['sucursales'][sucursal] = row
+
+        # Asegurarse de que 'global' tenga datos si existe el código
+        if not data['global']:
+             cur.execute("SELECT Existencia, Clasificacion, DescProd2, Descripcion, Sucursal FROM inventario_plain WHERE Codigo = ? AND Sucursal = 'Global'", (codigo,))
+             global_data_row = cur.fetchone()
+             if global_data_row:
+                  data['global'] = dict(global_data_row)
+
+
+        # Si después de filtrar sucursales nos quedamos sin ninguna, pero sí hay global,
+        # puede ser confuso. Podríamos decidir devolver un error o solo los datos globales.
+        # Por ahora, devolvemos lo que tenemos.
+
+        return jsonify(data)
+
+    except sqlite3.Error as e:
+        print(f"Error de detalle SQLite: {e}")
+        return jsonify({"error": "Error en la base de datos al obtener detalles"}), 500
+    except Exception as e:
+        print(f"Error general en /detalle: {e}")
+        return jsonify({"error": "Error interno del servidor al obtener detalles"}), 500
+
+
+if __name__ == "__main__":
+    # Esta parte solo se ejecuta si corres `python app.py` localmente
+    # Render usará gunicorn, no esto.
+    if not os.path.exists(DATABASE):
+        print(f"Error: No se encuentra la base de datos '{DATABASE}'.")
+        print("Por favor, ejecuta 'python build_index.py' primero para crearla.")
+    else:
+        # debug=True es útil para desarrollo local, Render lo ignora
+        app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)), debug=True)
