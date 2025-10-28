@@ -3,26 +3,22 @@ import sqlite3
 import os
 
 app = Flask(__name__)
-# El script de build ahora crea 'inventario.db'
 DATABASE = 'inventario.db'
 
 # --- Configuración de Sucursales ---
-# Asegura el orden correcto en la tabla de detalles
 SUCURSALES_ORDEN = ['HI', 'EX', 'MT', 'SA', 'ADE']
 
 # --- Conexión a la Base de Datos ---
 
 def get_db():
-    """Abre una nueva conexión a la base de datos si no existe una en el contexto."""
     db = getattr(g, '_database', None)
     if db is None:
         db = g._database = sqlite3.connect(DATABASE)
-        db.row_factory = sqlite3.Row # Permite acceder a los resultados por nombre de columna
+        db.row_factory = sqlite3.Row
     return db
 
 @app.teardown_appcontext
 def close_connection(exception):
-    """Cierra la conexión a la base de datos al final de la solicitud."""
     db = getattr(g, '_database', None)
     if db is not None:
         db.close()
@@ -170,11 +166,10 @@ HTML_TEMPLATE = """
         .search-results li:hover {
             background-color: #f9f9f9;
         }
-        /* CAMBIO AQ, B, D */
         .search-results li .codigo-aq {
             font-weight: bold;
             color: var(--color-primario);
-            display: block; /* Para que ocupe su propia línea */
+            display: block;
             font-size: 0.9em;
             margin-bottom: 3px;
         }
@@ -226,7 +221,7 @@ HTML_TEMPLATE = """
 
         <div class="detalle-producto" id="detalle-producto" style="display: none;">
             </div>
-
+        
         <div class="leyenda" id="leyenda-clasificacion" style="display: none;">
             <strong>A:</strong> 6-12m vendidos | <strong>B:</strong> 3-5m vendidos | <strong>C:</strong> 1-2m vendidos | <strong>S/M:</strong> Sin Venta (>0)
         </div>
@@ -244,11 +239,11 @@ HTML_TEMPLATE = """
         const searchInput = document.getElementById('search-input');
         const searchResults = document.getElementById('search-results');
         const detalleProducto = document.getElementById('detalle-producto');
-        const leyendaClasificacion = document.getElementById('leyenda-clasificacion');
+        const leyendaClasificacion = document.getElementById('leyenda-clasificacion'); // <-- Re-agregado
         const searchButton = document.getElementById('search-button');
         const soloConExistencia = document.getElementById('solo-con-existencia');
         const sucursalCheckboxes = document.querySelectorAll('input[name="sucursal"]');
-        let currentQuery = ""; // Para guardar la última consulta
+        let currentQuery = "";
 
         // --- Lógica de Búsqueda ---
         
@@ -257,7 +252,7 @@ HTML_TEMPLATE = """
                 searchResults.innerHTML = '';
                 return;
             }
-            currentQuery = query; // Guardar la consulta
+            currentQuery = query;
             try {
                 const response = await fetch(`/search?q=${encodeURIComponent(query)}`);
                 const productos = await response.json();
@@ -277,12 +272,8 @@ HTML_TEMPLATE = """
             
             productos.forEach(producto => {
                 const li = document.createElement('li');
-                li.dataset.codigo = producto.Codigo; // Usar Codigo (B) como ID único
+                li.dataset.codigo = producto.Codigo;
                 
-                // --- CAMBIO PARA MOSTRAR AQ, B, D ---
-                // producto.DescProd2 es (AQ)
-                // producto.Codigo es (B)
-                // producto.Descripcion es (D)
                 li.innerHTML = `
                     <span class="codigo-aq">(${producto.DescProd2 || 'S/C'})</span>
                     <span class="codigo-b">${producto.Codigo}</span> – 
@@ -291,11 +282,10 @@ HTML_TEMPLATE = """
                 
                 li.addEventListener('click', () => {
                     fetchDetalle(producto.Codigo);
-                    // Ocultar resultados y mostrar detalle
                     searchResults.style.display = 'none';
                     detalleProducto.style.display = 'block';
-                    leyendaClasificacion.style.display = 'block';
-                    searchInput.value = producto.Codigo; // Poner el código B en el buscador
+                    leyendaClasificacion.style.display = 'block'; // <-- Re-agregado
+                    searchInput.value = producto.Codigo;
                 });
                 searchResults.appendChild(li);
             });
@@ -305,7 +295,6 @@ HTML_TEMPLATE = """
         
         async function fetchDetalle(codigo) {
             try {
-                // Obtener filtros seleccionados
                 const filtros = getFiltros();
                 const response = await fetch(`/detalle?codigo=${encodeURIComponent(codigo)}&${filtros.query}`);
                 const data = await response.json();
@@ -324,15 +313,14 @@ HTML_TEMPLATE = """
         }
         
         function displayDetalleProducto(data, sucursalesFiltro) {
-            // Si no hay filtro de sucursal, mostrar todas por defecto
             const sucursalesAMostrar = sucursalesFiltro.length > 0 ? sucursalesFiltro : {{ SUCURSALES_ORDEN | tojson }};
             
             let ths = '';
             let tdsExistencia = '';
-            let tdsClasificacion = '';
+            let tdsClasificacion = ''; // <-- Re-agregado
             
             sucursalesAMostrar.forEach(suc => {
-                const info = data.sucursales[suc] || { Existencia: 'N/A', Clasificacion: 'N/A' };
+                const info = data.sucursales[suc] || { Existencia: 'N/A', Clasificacion: 'N/A' }; // <-- Re-agregado
                 let existenciaNum = parseInt(info.Existencia);
                 let existenciaStr = info.Existencia;
                 
@@ -343,13 +331,13 @@ HTML_TEMPLATE = """
 
                 ths += `<th>${suc}</th>`;
                 tdsExistencia += `<td ${claseExistencia}>${existenciaStr}</td>`;
-                tdsClasificacion += `<td>${info.Clasificacion}</td>`;
+                tdsClasificacion += `<td>${info.Clasificacion}</td>`; // <-- Re-agregado
             });
             
             let stockTotal = data.global.Existencia;
             let stockTotalClase = parseInt(stockTotal) < 0 ? 'class="existencia-negativa"' : '';
 
-            // Usar el Código B (Codigo) y la Descripción D (Descripcion) para el título
+            // CAMBIO: Volver a agregar la fila de Clasificación
             detalleProducto.innerHTML = `
                 <h3>Detalle: ${data.global.Descripcion}</h3>
                 <p><strong>Código (B):</strong> ${data.codigo_buscado}</p>
@@ -378,7 +366,7 @@ HTML_TEMPLATE = """
             `;
             
             detalleProducto.style.display = 'block';
-            leyendaClasificacion.style.display = 'block';
+            leyendaClasificacion.style.display = 'block'; // <-- Re-agregado
         }
 
         // --- Lógica de Filtros ---
@@ -404,7 +392,6 @@ HTML_TEMPLATE = """
         }
         
         function applyFiltros() {
-            // Si la vista de detalle está activa, recargarla con los filtros
             const codigoActual = searchInput.value;
             if (detalleProducto.style.display === 'block' && codigoActual) {
                 fetchDetalle(codigoActual);
@@ -416,28 +403,25 @@ HTML_TEMPLATE = """
         let searchTimeout;
         searchInput.addEventListener('input', (e) => {
             clearTimeout(searchTimeout);
-            // Si el input se vacía, limpiar todo
             if (e.target.value === '') {
                 searchResults.innerHTML = '';
                 detalleProducto.style.display = 'none';
-                leyendaClasificacion.style.display = 'none';
-                searchResults.style.display = 'block'; // Mostrar lista de nuevo
+                leyendaClasificacion.style.display = 'none'; // <-- Re-agregado
+                searchResults.style.display = 'block';
                 return;
             }
             
-            // Volver a mostrar resultados si se está escribiendo
             if (searchResults.style.display === 'none') {
                 searchResults.style.display = 'block';
                 detalleProducto.style.display = 'none';
-                leyendaClasificacion.style.display = 'none';
+                leyendaClasificacion.style.display = 'none'; // <-- Re-agregado
             }
             
             searchTimeout = setTimeout(() => {
                 fetchSearch(e.target.value);
-            }, 300); // Espera 300ms antes de buscar
+            }, 300);
         });
 
-        // Buscar al presionar Enter
         searchInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') {
                 clearTimeout(searchTimeout);
@@ -445,13 +429,11 @@ HTML_TEMPLATE = """
             }
         });
         
-        // Buscar al presionar el botón
         searchButton.addEventListener('click', () => {
             clearTimeout(searchTimeout);
             fetchSearch(searchInput.value);
         });
 
-        // Aplicar filtros al cambiar checkboxes
         soloConExistencia.addEventListener('change', applyFiltros);
         sucursalCheckboxes.forEach(cb => {
             cb.addEventListener('change', applyFiltros);
@@ -466,7 +448,6 @@ HTML_TEMPLATE = """
 
 @app.route('/')
 def index():
-    """Sirve la página principal."""
     if not os.path.exists(DATABASE):
         return "Error: La base de datos 'inventario.db' no se ha construido. Ejecuta 'build_index.py' primero.", 500
     
@@ -474,26 +455,20 @@ def index():
 
 @app.route('/search')
 def search():
-    """Maneja la búsqueda de autocompletado (AJAX)."""
     query = request.args.get('q', '').strip()
     if not query:
         return jsonify([])
 
-    # Preparar consulta FTS5
-    # Agregar '*' al final para búsquedas de prefijo (ej. "TORN" busca "TORNILLO")
     query_fts = f'"{query}"*' 
     
     try:
         conn = get_db()
         cur = conn.cursor()
         
-        # --- CAMBIO: Seleccionar las 3 columnas para la lista de resultados ---
-        # Seleccionamos DescProd2 (AQ), Codigo (B), y Descripcion (D)
         cur.execute(
             "SELECT DescProd2, Codigo, Descripcion FROM inventario WHERE inventario MATCH ? ORDER BY rank LIMIT 50",
             (query_fts,)
         )
-        # Convertir resultados a diccionarios
         productos = [dict(row) for row in cur.fetchall()]
         return jsonify(productos)
         
@@ -503,61 +478,52 @@ def search():
 
 @app.route('/detalle')
 def detalle():
-    """Obtiene los detalles de un producto específico (AJAX)."""
     codigo = request.args.get('codigo', '').strip()
     if not codigo:
         return jsonify({"error": "No se proporcionó código de producto"}), 400
 
-    # Obtener parámetros de filtro
     solo_existencia = request.args.get('solo_existencia') == 'true'
-    sucursales_filtro = request.args.getlist('sucursal') # Lista de sucursales
+    sucursales_filtro = request.args.getlist('sucursal')
 
     try:
         conn = get_db()
         cur = conn.cursor()
         
-        # Construir consulta base
+        # CAMBIO: Volver a agregar 'Clasificacion'
         query_sql = "SELECT Sucursal, Existencia, Clasificacion, DescProd2, Descripcion FROM inventario_plain WHERE Codigo = ?"
         params = [codigo]
         
-        # Aplicar filtros si existen
         if solo_existencia:
-            # Asegurarse de que Existencia sea un número > 0
             query_sql += " AND Sucursal != 'Global' AND CAST(Existencia AS INTEGER) > 0"
         
         if sucursales_filtro:
-            # Crear placeholders (?, ?, ?)
             placeholders = ', '.join('?' for _ in sucursales_filtro)
             query_sql += f" AND Sucursal IN ({placeholders})"
             params.extend(sucursales_filtro)
 
         cur.execute(query_sql, params)
-        
         resultados = cur.fetchall()
         
         if not resultados:
-            # Intentar buscar sin filtros para ver si el producto existe
             cur.execute("SELECT 1 FROM inventario_plain WHERE Codigo = ? LIMIT 1", (codigo,))
             if not cur.fetchone():
                 return jsonify({"error": "Código de producto no encontrado"}), 404
             else:
                 return jsonify({"error": "No se encontraron existencias con los filtros aplicados"}), 404
 
-        # Procesar resultados
         data = {
             "codigo_buscado": codigo,
             "sucursales": {},
             "global": {}
         }
         
-        # Obtener info global por separado (ignora filtros)
+        # CAMBIO: Volver a agregar 'Clasificacion'
         cur.execute("SELECT Existencia, Clasificacion, DescProd2, Descripcion FROM inventario_plain WHERE Codigo = ? AND Sucursal = 'Global'", (codigo,))
         global_data = cur.fetchone()
         
         if global_data:
             data['global'] = dict(global_data)
 
-        # Poblar datos de sucursales
         for row in resultados:
             if row['Sucursal'] != 'Global':
                 data['sucursales'][row['Sucursal']] = dict(row)
@@ -573,5 +539,4 @@ if __name__ == "__main__":
         print(f"Error: No se encuentra la base de datos '{DATABASE}'.")
         print("Por favor, ejecuta 'python build_index.py' primero para crearla.")
     else:
-        # debug=True se desactiva en producción (Render)
         app.run(debug=True)

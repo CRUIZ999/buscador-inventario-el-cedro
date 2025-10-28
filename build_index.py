@@ -7,22 +7,17 @@ import glob # Para buscar los archivos CSV
 
 # --- CONFIGURACIÓN ---
 DB_PATH = "inventario.db"
-
-# Los 5 archivos CSV que esperamos encontrar. 
-# El nombre del archivo (sin .csv) será el código de la sucursal.
 SUCURSALES_FILES = ['hi', 'ex', 'mt', 'sa', 'ade']
 
-# Columnas esperadas por ÍNDICE (0-based):
-# B=1, D=3, E=4, AQ=41, FI=189
-COL_INDICES = {
-    'Codigo': 1,        # Col B
-    'Descripcion': 3,   # Col D
-    'Existencia': 4,    # Col E
-    'DescProd2': 41,    # Col AQ (NUEVA)
-    'Clasificacion': 189 # Col FI
+# Nombres de columnas que esperamos leer de los CSV limpios
+# Deben coincidir EXACTAMENTE con el encabezado de tus CSV
+COL_NOMBRES_CSV = {
+    'Codigo': 'cve_prod',
+    'Descripcion': 'desc_prod',
+    'Existencia': 'Inv',
+    'DescProd2': 'desc_prod2',
+    'Clasificacion': 'Clasificacion'
 }
-# Nombres estándar que usaremos
-COL_NAMES = ['Codigo', 'Descripcion', 'Existencia', 'DescProd2', 'Clasificacion']
 # --- FIN CONFIGURACIÓN ---
 
 
@@ -46,7 +41,7 @@ def clean_existence(value):
 
 def main():
     print("=" * 60)
-    print(" BUSCADOR DE INVENTARIO – FERRETERÍA EL CEDRO (v9 - Lector CSV Múltiple + AQ)")
+    print(" BUSCADOR DE INVENTARIO (v11 - Lector CSV Limpio por Nombres)")
     print("=" * 60)
 
     # --- [1/3] LEYENDO ARCHIVOS CSV ---
@@ -54,9 +49,9 @@ def main():
 
     all_sucursal_data = []
     found_files_count = 0
-
-    # Leer solo las columnas que necesitamos por su índice
-    column_indices_to_read = list(COL_INDICES.values())
+    
+    # Nombres de columnas que esperamos encontrar en los CSV
+    nombres_columnas_requeridas = list(COL_NOMBRES_CSV.values())
 
     for suc_code in SUCURSALES_FILES:
         file_path = f"{suc_code}.csv"
@@ -68,24 +63,24 @@ def main():
         found_files_count += 1
         
         try:
-            # --- LECTURA EFICIENTE DE CSV ---
+            # --- LECTURA POR NOMBRE DE COLUMNA ---
+            # header=0 le dice a pandas que la fila 1 es el encabezado
             df = pd.read_csv(
                 file_path,
-                header=None, 
-                skiprows=9,
-                usecols=column_indices_to_read,
-                encoding='latin1', # Probar 'latin1' o 'ISO-8859-1' si 'utf-8' falla
+                header=0, 
+                usecols=nombres_columnas_requeridas, # Leer solo las columnas que necesitamos por nombre
+                encoding='latin1',
                 on_bad_lines='skip',
-                dtype=str # Leer todo como texto primero para evitar errores
+                dtype=str
             )
 
-            # Asignar nombres estándar a las columnas leídas
-            df.columns = COL_NAMES
+            # Renombrar columnas a nuestro formato estándar (Codigo, Descripcion, etc.)
+            df = df.rename(columns={v: k for k, v in COL_NOMBRES_CSV.items()})
 
             # --- LIMPIEZA DE DATOS ---
             df['Codigo'] = df['Codigo'].apply(clean_text)
             df['Descripcion'] = df['Descripcion'].apply(clean_text)
-            df['DescProd2'] = df['DescProd2'].apply(clean_text) # NUEVA
+            df['DescProd2'] = df['DescProd2'].apply(clean_text)
             df['Clasificacion'] = df['Clasificacion'].apply(clean_text).replace('', 'S/M')
             df['Existencia'] = df['Existencia'].apply(clean_existence)
 
@@ -104,6 +99,7 @@ def main():
 
         except Exception as e:
             print(f"❌ Error procesando el archivo {file_path}: {e}")
+            print("   ASEGÚRATE DE QUE LOS NOMBRES DE ENCABEZADO SEAN: cve_prod, desc_prod, Inv, desc_prod2, Clasificacion")
             import traceback
             traceback.print_exc()
 
@@ -120,14 +116,14 @@ def main():
 
     grouped_data = data_combined.groupby(['Codigo', 'Sucursal']).agg(
         Descripcion=('Descripcion', 'first'),
-        DescProd2=('DescProd2', 'first'), # NUEVA
+        DescProd2=('DescProd2', 'first'),
         Existencia=('Existencia', 'sum'),
         Clasificacion=('Clasificacion', 'first')
     ).reset_index()
 
     global_stock = grouped_data.groupby('Codigo').agg(
          Descripcion=('Descripcion', 'first'),
-         DescProd2=('DescProd2', 'first'), # NUEVA
+         DescProd2=('DescProd2', 'first'),
          Existencia=('Existencia', 'sum'),
          Clasificacion=('Clasificacion', 'first')
     ).reset_index()
@@ -135,7 +131,6 @@ def main():
 
     final_data = pd.concat([grouped_data, global_stock], ignore_index=True)
 
-    # Convertir columnas finales a texto para la DB
     for c in ["Codigo", "Descripcion", "DescProd2", "Existencia", "Clasificacion", "Sucursal"]:
          if c == 'Existencia':
              final_data[c] = final_data[c].round(0).astype(int).astype(str)
@@ -149,7 +144,6 @@ def main():
     # --- [3/3] CONSTRUYENDO DB SQLITE ---
     print(f"\n[3/3] Construyendo base de datos SQLite ('{DB_PATH}')...")
     
-    # Cambiamos el nombre de la DB a inventario.db
     if os.path.exists(DB_PATH):
         try:
             os.remove(DB_PATH)
@@ -161,12 +155,9 @@ def main():
     try:
         cur = conn.cursor()
 
-        # ---- Tabla NORMAL (Para detalles) ----
         cur.execute("DROP TABLE IF EXISTS inventario_plain;")
-        # NUEVA: Añadida DescProd2
         cur.execute("CREATE TABLE inventario_plain (Codigo TEXT, Descripcion TEXT, DescProd2 TEXT, Existencia TEXT, Clasificacion TEXT, Sucursal TEXT);")
         cur.executemany(
-            # NUEVA: Añadida DescProd2
             "INSERT INTO inventario_plain (Codigo, Descripcion, DescProd2, Existencia, Clasificacion, Sucursal) VALUES (?, ?, ?, ?, ?, ?);",
             final_data[["Codigo", "Descripcion", "DescProd2", "Existencia", "Clasificacion", "Sucursal"]].values.tolist()
         )
@@ -176,12 +167,9 @@ def main():
         cur.execute("CREATE INDEX IF NOT EXISTS idx_inv_suc  ON inventario_plain(Sucursal);")
         print("   INFO: Índices creados para 'inventario_plain'.")
 
-        # ---- Tabla FTS5 (Para búsqueda rápida) ----
         cur.execute("DROP TABLE IF EXISTS inventario;")
-        # NUEVA: Añadida DescProd2
         cur.execute("CREATE VIRTUAL TABLE inventario USING fts5(Codigo, Descripcion, DescProd2, content='');")
         
-        # NUEVA: Añadida DescProd2
         unique_products = final_data[final_data['Sucursal'] == 'Global'][['Codigo', 'Descripcion', 'DescProd2']].drop_duplicates().values.tolist()
         cur.executemany("INSERT INTO inventario (Codigo, Descripcion, DescProd2) VALUES (?, ?, ?);", unique_products)
         print("   INFO: Tabla FTS 'inventario' creada y poblada.")
